@@ -22,7 +22,7 @@ func NewRouter() http.Handler {
 	// Public routes
 	mux.Handle("/api/v1/auth/login", loginRateLimiter.Middleware(SecureLoginMiddleware(http.HandlerFunc(HandleLogin))))
 	mux.Handle("/api/v1/auth/refresh", loginRateLimiter.Middleware(http.HandlerFunc(HandleRefresh)))
-	mux.Handle("/api/v1/auth/logout", loginRateLimiter.Middleware(JWTMiddleware(http.HandlerFunc(HandleLogout)))
+	mux.Handle("/api/v1/auth/logout", loginRateLimiter.Middleware(JWTMiddleware(http.HandlerFunc(HandleLogout))))
 
 	// Sites router dispatching paths under /api/v1/sites
 	sitesHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
