@@ -162,7 +162,6 @@ func DefaultResourceLimits() ResourceLimits {
 
 // NewSiteConfig creates a new SiteConfig initialized with production defaults.
 func NewSiteConfig(domain string, siteType SiteType) *SiteConfig {
-	slug := SanitizeDomainToSlug(domain)
 	port := 8080
 	if siteType == SiteTypePython {
 		port = 8000
