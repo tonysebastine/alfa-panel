@@ -58,7 +58,7 @@ func NewRouter() http.Handler {
 			return
 		}
 		if strings.HasSuffix(path, "/exec") {
-			HandleSiteExec(w, r)
+			writeJSONError(w, http.StatusForbidden, "arbitrary container execution is disabled; use typed site operations")
 			return
 		}
 
