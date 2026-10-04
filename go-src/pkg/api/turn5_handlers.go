@@ -41,18 +41,26 @@ type FileContentPayload struct {
 func ResolveSafePath(siteDir string, userPath string) (string, error) {
 	cleanSiteDir := filepath.Clean(siteDir)
 	raw := strings.TrimSpace(userPath)
-	if raw == "" || strings.ContainsAny(raw, "\\\\x00") {
+	if raw == "" || strings.ContainsAny(raw, "\\x00") {
 		return "", fmt.Errorf("invalid path")
 	}
-	if filepath.IsAbs(raw) || strings.HasPrefix(raw, "/") {
-		return "", fmt.Errorf("forbidden absolute path: '%s'", userPath)
-	}
-	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '/' || r == '\\' }) {
+	raw = strings.ReplaceAll(raw, "\\", "/")
+	wasRooted := strings.HasPrefix(raw, "/")
+	raw = strings.TrimPrefix(raw, "/")
+	parts := strings.Split(raw, "/")
+	for _, part := range parts {
 		if part == ".." {
 			return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
 		}
 	}
-	cleanUserPath := filepath.Clean(raw)
+	if wasRooted {
+		switch parts[0] {
+		case "app", "data", "logs", "config", "webapps":
+		default:
+			return "", fmt.Errorf("forbidden absolute path: '%s'", userPath)
+		}
+	}
+	cleanUserPath := filepath.Clean(filepath.FromSlash(raw))
 	targetPath := filepath.Join(cleanSiteDir, cleanUserPath)
 	if targetPath != cleanSiteDir && !strings.HasPrefix(targetPath, cleanSiteDir+string(filepath.Separator)) {
 		return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
