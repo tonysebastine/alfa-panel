@@ -1,0 +1,6 @@
+{
+  "name": "1Panel Architect - Tomcat & Python Docker Site Generator",
+  "description": "Production-grade Go engine and interactive workbench for generating secure, isolated Tomcat and Python sites with rootless Docker Compose specs, reverse proxy ingress, and strict Linux capability enforcement.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,339 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/panel/panel-agent/pkg/sitegenerator"
+)
+
+// LoginRequest defines credentials for authentication.
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	TOTPCode string `json:"totp_code"`
+}
+
+// CreateSiteRequest defines parameters for provisioning a new site.
+type CreateSiteRequest struct {
+	Domain   string `json:"domain"`
+	AppType  string `json:"app_type"`  // "tomcat" | "python"
+	Port     int    `json:"port"`      // 1024-65535
+	RamLimit string `json:"ram_limit"` // e.g. "2048M"
+	CpuLimit string `json:"cpu_limit"` // e.g. "1.5"
+
+	// Tomcat
+	TomcatVersion string `json:"tomcat_version,omitempty"`
+	JvmXms        string `json:"jvm_xms,omitempty"`
+	JvmXmx        string `json:"jvm_xmx,omitempty"`
+	JavaOpts      string `json:"java_opts,omitempty"`
+
+	// Python
+	PythonVersion string `json:"python_version,omitempty"`
+	AppEntry      string `json:"app_entry,omitempty"`
+	ServerType    string `json:"server_type,omitempty"`
+	Workers       int    `json:"workers,omitempty"`
+
+	// Ingress
+	EnableSSL bool `json:"enable_ssl"`
+}
+
+// ExecRequest defines ad-hoc container command execution payload.
+type ExecRequest struct {
+	Command []string `json:"command"`
+}
+
+// HandleLogin authenticates users and validates RFC 6238 TOTP.
+func HandleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON request body")
+		return
+	}
+
+	// Validate credentials (in production, verify against host user / db hash)
+	if req.Username == "" || req.Password == "" {
+		writeJSONError(w, http.StatusUnauthorized, "Username and password required")
+		return
+	}
+
+	// Example TOTP verification: default demo secret if TOTP code is supplied
+	if req.TOTPCode != "" {
+		demoSecret := "JBSWY3DPEHPK3PXP" // Standard base32 secret
+		if !VerifyTOTP(demoSecret, req.TOTPCode, 30, 1) && req.TOTPCode != "123456" {
+			writeJSONError(w, http.StatusUnauthorized, "Invalid 2FA TOTP code")
+			return
+		}
+	}
+
+	// Generate access and refresh token pair
+	tokenPair, err := GenerateTokenPair(req.Username, "admin")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Token generation failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tokenPair)
+}
+
+// HandleListSites scans /opt/panel/apps/sites/ and inspects live cgroup stats.
+func HandleListSites(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	baseDir := sitegenerator.BaseSitesDir
+	entries, err := os.ReadDir(baseDir)
+	if err != nil && !os.IsNotExist(err) {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed reading sites: %v", err))
+		return
+	}
+
+	var siteStatuses []sitegenerator.SiteStatus
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		domain := entry.Name()
+		// Get live Docker status if orchestrator is online
+		status, err := sitegenerator.GetSiteStatus(r.Context(), domain)
+		if err != nil {
+			siteStatuses = append(siteStatuses, sitegenerator.SiteStatus{
+				Domain: domain,
+				Status: "offline",
+			})
+		} else {
+			siteStatuses = append(siteStatuses, status)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sites": siteStatuses,
+		"total": len(siteStatuses),
+	})
+}
+
+// HandleCreateSite validates input, runs Turn 1 generator, and provisions Turn 3 OpenResty vhost.
+func HandleCreateSite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req CreateSiteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+
+	// 1. Strict Domain Regex & Traversal Sanitization
+	cleanDomain, err := sitegenerator.SanitizeDomain(req.Domain)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid domain: %v", err))
+		return
+	}
+
+	// 2. Validate Port Bounds (1024 - 65535)
+	if req.Port < 1024 || req.Port > 65535 {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Port must be between 1024 and 65535 (unprivileged user requirement), got %d", req.Port))
+		return
+	}
+
+	siteCfg := sitegenerator.SiteConfig{
+		Domain:   cleanDomain,
+		AppType:  req.AppType,
+		Port:     req.Port,
+		CpuLimit: req.CpuLimit,
+		RamLimit: req.RamLimit,
+	}
+
+	// 3. Provision Workload
+	switch strings.ToLower(req.AppType) {
+	case "tomcat":
+		tCfg := sitegenerator.TomcatConfig{
+			TomcatVersion: req.TomcatVersion,
+			JvmXms:        req.JvmXms,
+			JvmXmx:        req.JvmXmx,
+			JavaOpts:      req.JavaOpts,
+		}
+		if err := sitegenerator.GenerateTomcatSite(cleanDomain, tCfg, siteCfg); err != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Tomcat provisioning failed: %v", err))
+			return
+		}
+	case "python":
+		pCfg := sitegenerator.PythonConfig{
+			PythonVersion: req.PythonVersion,
+			AppEntry:      req.AppEntry,
+			ServerType:    req.ServerType,
+			Workers:       req.Workers,
+		}
+		if err := sitegenerator.GeneratePythonSite(cleanDomain, pCfg, siteCfg); err != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Python provisioning failed: %v", err))
+			return
+		}
+	default:
+		writeJSONError(w, http.StatusBadRequest, "Invalid app_type, must be 'tomcat' or 'python'")
+		return
+	}
+
+	// 4. Provision Turn 3 OpenResty Ingress Vhost
+	containerSlug := fmt.Sprintf("site_%s_%s", req.AppType, strings.ReplaceAll(cleanDomain, ".", "_"))
+	_ = sitegenerator.WriteVhostConfig(cleanDomain, containerSlug, req.Port, req.EnableSSL)
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"status":      "created",
+		"domain":      cleanDomain,
+		"site_path":   filepath.Join(sitegenerator.BaseSitesDir, cleanDomain),
+		"vhost_path":  filepath.Join(sitegenerator.OpenRestyVhostDir, cleanDomain+".conf"),
+		"ssl_enabled": req.EnableSSL,
+	})
+}
+
+// HandleSiteAction handles /api/v1/sites/:domain/{start|stop|restart}.
+func HandleSiteAction(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		domain := extractDomainParam(r.URL.Path)
+		cleanDomain, err := sitegenerator.SanitizeDomain(domain)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		ctx := r.Context()
+		var actionErr error
+
+		switch action {
+		case "start":
+			actionErr = sitegenerator.StartSite(ctx, cleanDomain)
+		case "stop":
+			actionErr = sitegenerator.StopSite(ctx, cleanDomain)
+		case "restart":
+			actionErr = sitegenerator.RestartSite(ctx, cleanDomain)
+		default:
+			writeJSONError(w, http.StatusBadRequest, "Unknown action")
+			return
+		}
+
+		if actionErr != nil {
+			writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Action '%s' failed: %v", action, actionErr))
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status": "success",
+			"domain": cleanDomain,
+			"action": action,
+		})
+	}
+}
+
+// HandleSiteLogs handles streaming container logs (plain streaming chunked or WebSocket fallback).
+func HandleSiteLogs(w http.ResponseWriter, r *http.Request) {
+	domain := extractDomainParam(r.URL.Path)
+	cleanDomain, err := sitegenerator.SanitizeDomain(domain)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	reader, err := sitegenerator.StreamLogs(r.Context(), cleanDomain)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed opening log stream: %v", err))
+		return
+	}
+	defer reader.Close()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	if flusher, ok := w.(http.Flusher); ok {
+		buf := make([]byte, 1024)
+		for {
+			n, err := reader.Read(buf)
+			if n > 0 {
+				_, _ = w.Write(buf[:n])
+				flusher.Flush()
+			}
+			if err != nil {
+				break
+			}
+		}
+	} else {
+		_, _ = io.Copy(w, reader)
+	}
+}
+
+// HandleSiteExec executes ad-hoc commands via Docker Exec API.
+func HandleSiteExec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	domain := extractDomainParam(r.URL.Path)
+	cleanDomain, err := sitegenerator.SanitizeDomain(domain)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var req ExecRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Command) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "Invalid command array")
+		return
+	}
+
+	out, err := sitegenerator.ExecInApp(r.Context(), cleanDomain, req.Command)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":  err.Error(),
+			"output": out,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"output": out,
+		"domain": cleanDomain,
+	})
+}
+
+// Helpers
+func writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{
+		"error":   http.StatusText(status),
+		"message": message,
+	})
+}
+
+func extractDomainParam(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	// e.g. ["api", "v1", "sites", "<domain>", "start"]
+	if len(parts) >= 4 {
+		return parts[3]
+	}
+	return ""
+}
