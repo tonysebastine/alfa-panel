@@ -2,11 +2,13 @@ package api
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,18 +65,24 @@ type JWTClaims struct {
 	TokenType string `json:"type"` // "access" | "refresh"
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
+	JTI       string `json:"jti"`
 }
 
 // GenerateTokenPair issues a 15-minute access token and a 7-day refresh token.
 func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 	if len(jwtSecretKey) < 32 { return nil, errors.New("PANEL_JWT_SECRET must be configured with at least 32 bytes") }
 	now := time.Now().UTC()
+	accessJTI, err := newTokenID()
+	if err != nil { return nil, err }
+	refreshJTI, err := newTokenID()
+	if err != nil { return nil, err }
 
 	// Access Token: 15 minutes validity
 	accessClaims := JWTClaims{
 		Subject:   userID,
 		Role:      role,
 		TokenType: "access",
+		JTI:       accessJTI,
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(15 * time.Minute).Unix(),
 	}
@@ -88,6 +96,7 @@ func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 		Subject:   userID,
 		Role:      role,
 		TokenType: "refresh",
+		JTI:       refreshJTI,
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(7 * 24 * time.Hour).Unix(),
 	}
@@ -99,6 +108,13 @@ func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 	pair := &TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: 900, TokenType: "Bearer"}
 	refreshStore.Lock(); refreshStore.tokens[sha256.Sum256([]byte(refreshToken))] = now.Add(7 * 24 * time.Hour); refreshStore.Unlock()
 	return pair, nil
+}
+
+
+func newTokenID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil { return "", fmt.Errorf("failed to generate token id: %w", err) }
+	return hex.EncodeToString(buf), nil
 }
 
 // signJWT signs claims using HMAC-SHA256.
