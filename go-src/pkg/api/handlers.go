@@ -132,74 +132,68 @@ func HandleCreateSite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateSiteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	if err := dec.Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
 
-	// 1. Strict Domain Regex & Traversal Sanitization
 	cleanDomain, err := sitegenerator.SanitizeDomain(req.Domain)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid domain: %v", err))
 		return
 	}
-
-	// 2. Validate Port Bounds (1024 - 65535)
 	if req.Port < 1024 || req.Port > 65535 {
-		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Port must be between 1024 and 65535 (unprivileged user requirement), got %d", req.Port))
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Port must be between 1024 and 65535, got %d", req.Port))
 		return
 	}
 
-	siteCfg := sitegenerator.SiteConfig{
-		Domain:   cleanDomain,
-		AppType:  req.AppType,
-		Port:     req.Port,
-		CpuLimit: req.CpuLimit,
-		RamLimit: req.RamLimit,
-	}
-
-	// 3. Provision Workload
+	var siteType sitegenerator.SiteType
 	switch strings.ToLower(req.AppType) {
 	case "tomcat":
-		tCfg := sitegenerator.TomcatConfig{
-			TomcatVersion: req.TomcatVersion,
-			JvmXms:        req.JvmXms,
-			JvmXmx:        req.JvmXmx,
-			JavaOpts:      req.JavaOpts,
-		}
-		if err := sitegenerator.GenerateTomcatSite(cleanDomain, tCfg, siteCfg); err != nil {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Tomcat provisioning failed: %v", err))
-			return
-		}
+		siteType = sitegenerator.SiteTypeTomcat
 	case "python":
-		pCfg := sitegenerator.PythonConfig{
-			PythonVersion: req.PythonVersion,
-			AppEntry:      req.AppEntry,
-			ServerType:    req.ServerType,
-			Workers:       req.Workers,
-		}
-		if err := sitegenerator.GeneratePythonSite(cleanDomain, pCfg, siteCfg); err != nil {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Python provisioning failed: %v", err))
-			return
-		}
+		siteType = sitegenerator.SiteTypePython
 	default:
 		writeJSONError(w, http.StatusBadRequest, "Invalid app_type, must be 'tomcat' or 'python'")
 		return
 	}
 
-	// 4. Provision Turn 3 OpenResty Ingress Vhost
-	containerSlug := fmt.Sprintf("site_%s_%s", req.AppType, strings.ReplaceAll(cleanDomain, ".", "_"))
-	_ = sitegenerator.WriteVhostConfig(cleanDomain, containerSlug, req.Port, req.EnableSSL)
+	cfg := sitegenerator.NewSiteConfig(cleanDomain, siteType)
+	cfg.Port = req.Port
+	cfg.Proxy.UpstreamPort = req.Port
+	cfg.Proxy.EnableSSL = req.EnableSSL
+	cfg.BaseDir = sitegenerator.BaseSitesDir
+	cfg.Resources.CPULimit = req.CpuLimit
+	cfg.Resources.MemoryLimit = req.RamLimit
+
+	if siteType == sitegenerator.SiteTypeTomcat {
+		if req.TomcatVersion != "" { cfg.Tomcat.TomcatVersion = req.TomcatVersion }
+		if req.JvmXms != "" { cfg.Tomcat.MinHeap = req.JvmXms }
+		if req.JvmXmx != "" { cfg.Tomcat.MaxHeap = req.JvmXmx }
+		if req.JavaOpts != "" { cfg.Tomcat.CustomJVMOptions = strings.Fields(req.JavaOpts) }
+	} else {
+		if req.PythonVersion != "" { cfg.Python.PythonVersion = req.PythonVersion }
+		if req.AppEntry != "" { cfg.Python.AppModule = req.AppEntry }
+		if req.ServerType != "" { cfg.Python.Runner = sitegenerator.PythonRunner(req.ServerType) }
+		if req.Workers > 0 { cfg.Python.Workers = req.Workers }
+	}
+
+	gen := sitegenerator.NewGenerator(false)
+	res, err := gen.GenerateSite(cfg)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("site provisioning failed: %v", err))
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":      "created",
 		"domain":      cleanDomain,
-		"site_path":   filepath.Join(sitegenerator.BaseSitesDir, cleanDomain),
-		"vhost_path":  filepath.Join(sitegenerator.OpenRestyVhostDir, cleanDomain+".conf"),
+		"site_path":   res.SitePath,
+		"vhost_path":  res.ProxyConfigPath,
 		"ssl_enabled": req.EnableSSL,
 	})
 }
-
 // HandleSiteAction handles /api/v1/sites/:domain/{start|stop|restart}.
 func HandleSiteAction(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
