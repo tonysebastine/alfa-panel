@@ -132,7 +132,7 @@ func DefaultPythonConfig() *PythonConfig {
 		AppModule:       "main:app",
 		Workers:         4,
 		Threads:         2,
-		AutoInstallReqs: true,
+		AutoInstallReqs: false,
 		VirtualenvPath:  "/opt/venv",
 	}
 }
@@ -142,8 +142,8 @@ func DefaultSecurityProfile() SecurityProfile {
 	return SecurityProfile{
 		NoNewPrivileges: true,
 		DropCaps:        []string{"ALL"},
-		AddCaps:         []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID"},
-		ReadOnlyRootfs:  false,
+		AddCaps:         []string{},
+		ReadOnlyRootfs:  true,
 		UID:             1001,
 		GID:             1001,
 	}
