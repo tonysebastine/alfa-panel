@@ -41,7 +41,7 @@ type FileContentPayload struct {
 func ResolveSafePath(siteDir string, userPath string) (string, error) {
 	cleanSiteDir := filepath.Clean(siteDir)
 	raw := strings.TrimSpace(userPath)
-	if raw == "" || strings.ContainsAny(raw, "\\x00") {
+	if raw == "" || strings.ContainsRune(raw, 0) {
 		return "", fmt.Errorf("invalid path")
 	}
 	raw = strings.ReplaceAll(raw, "\\", "/")
