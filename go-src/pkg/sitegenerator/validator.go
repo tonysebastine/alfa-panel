@@ -31,7 +31,6 @@ var (
 		"CHOWN":            true,
 		"SETUID":           true,
 		"SETGID":           true,
-		"DAC_OVERRIDE":     true,
 	}
 )
 
@@ -58,8 +57,8 @@ func ValidateConfig(cfg *SiteConfig) error {
 	}
 
 	// 3. Port bounds
-	if cfg.Port < 1 || cfg.Port > 65535 {
-		return fmt.Errorf("internal port must be between 1 and 65535, got %d", cfg.Port)
+	if cfg.Port < 1024 || cfg.Port > 65535 {
+		return fmt.Errorf("internal port must be between 1024 and 65535, got %d", cfg.Port)
 	}
 
 	// 4. Security Profile
