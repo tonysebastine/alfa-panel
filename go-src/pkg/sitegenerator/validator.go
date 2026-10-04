@@ -139,6 +139,10 @@ func ValidateSecurityProfile(sec *SecurityProfile) error {
 		return errors.New("security profile must include 'ALL' in drop_caps")
 	}
 
+	if !sec.ReadOnlyRootfs {
+		return errors.New("security profile must enable read-only root filesystem")
+	}
+
 	for _, cap := range sec.AddCaps {
 		capUpper := strings.ToUpper(cap)
 		if !allowedCaps[capUpper] {
