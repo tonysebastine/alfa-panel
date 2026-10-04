@@ -3,7 +3,6 @@ package system
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
