@@ -45,19 +45,11 @@ func ResolveSafePath(siteDir string, userPath string) (string, error) {
 		return "", fmt.Errorf("invalid path")
 	}
 	raw = strings.ReplaceAll(raw, "\\", "/")
-	wasRooted := strings.HasPrefix(raw, "/")
 	raw = strings.TrimPrefix(raw, "/")
 	parts := strings.Split(raw, "/")
 	for _, part := range parts {
 		if part == ".." {
 			return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
-		}
-	}
-	if wasRooted {
-		switch parts[0] {
-		case "app", "data", "logs", "config", "webapps":
-		default:
-			return "", fmt.Errorf("forbidden absolute path: '%s'", userPath)
 		}
 	}
 	cleanUserPath := filepath.Clean(filepath.FromSlash(raw))
