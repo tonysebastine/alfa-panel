@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -121,10 +122,10 @@ func JWTMiddleware(next http.Handler) http.Handler {
 		}
 
 		claims, err := VerifyJWT(parts[1])
-		if err != nil {
+		if err != nil || claims.TokenType != "access" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized","message":"` + err.Error() + `"}`))
+			_, _ = w.Write([]byte(`{"error":"unauthorized","message":"invalid or expired access token"}`))
 			return
 		}
 
@@ -148,6 +149,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 
 // extractIP obtains the client IP address considering reverse proxy headers.
 func extractIP(r *http.Request) string {
+	if os.Getenv("PANEL_TRUST_PROXY") != "true" { host, _, err := net.SplitHostPort(r.RemoteAddr); if err == nil { return host }; return r.RemoteAddr }
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
 		parts := strings.Split(forwarded, ",")
