@@ -68,11 +68,9 @@ func TestGenerateTomcatSite(t *testing.T) {
 	checks := []string{
 		"no-new-privileges:true",
 		"- ALL",
-		"- NET_BIND_SERVICE",
-		"- CHOWN",
-		"- SETUID",
-		"- SETGID",
 		"user: \"${UID}:${GID}\"",
+		"read_only: true",
+		"cap_add: []",
 		"panel-network",
 		"expose:\n      - \"${APP_PORT}\"",
 	}
