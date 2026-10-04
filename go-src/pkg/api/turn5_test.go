@@ -1,7 +1,6 @@
 package api
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
