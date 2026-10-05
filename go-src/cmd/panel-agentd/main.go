@@ -46,6 +46,11 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "delete":err=sitegenerator.DeleteSite(r.Context(),req.Domain,req.Purge)
 	case "status":var s sitegenerator.SiteStatus;s,err=sitegenerator.GetSiteStatus(r.Context(),req.Domain);data=s
 	case "install_deps":data,err=sitegenerator.InstallPythonDependencies(r.Context(),req.Domain)
+	case "create_site":
+		var cfg sitegenerator.SiteConfig
+		if err=json.Unmarshal(req.Payload,&cfg);err==nil {
+			res,e:=sitegenerator.NewGenerator(false).GenerateSite(&cfg);err=e;data=res
+		}
 	default:err=errors.New("operation not allowed")
 	}
 	if err!=nil{write(w,agentproto.Response{OK:false,Error:err.Error()});return}
