@@ -58,6 +58,12 @@ func operate(w http.ResponseWriter,r *http.Request){
 			if err==nil { _=sitegenerator.StopSite(r.Context(),req.Domain);err=a.Restore(req.Domain,p.Artifact);if err==nil{err=sitegenerator.StartSite(r.Context(),req.Domain)} }
 			if err==nil{data=map[string]any{"artifact":p.Artifact,"pre_restore_backup":pre.Path}}
 		}
+	case "file_tree":
+		data,err=fileTree(req.Domain)
+	case "file_content":
+		var p struct{Path string `json:"path"`};if err=json.Unmarshal(req.Payload,&p);err==nil{var body string;body,err=fileContent(req.Domain,p.Path);data=map[string]any{"path":p.Path,"content":body}}
+	case "file_write":
+		var p struct{Path string `json:"path"`;Content string `json:"content"`};if err=json.Unmarshal(req.Payload,&p);err==nil{err=writeFileContent(req.Domain,p.Path,p.Content);data=map[string]any{"path":p.Path,"status":"saved"}}
 	case "create_site":
 		var cfg sitegenerator.SiteConfig
 		if err=json.Unmarshal(req.Payload,&cfg);err==nil {
@@ -77,5 +83,16 @@ func logs(w http.ResponseWriter,r *http.Request){
 	w.Header().Set("Content-Type","text/plain; charset=utf-8");w.Header().Set("X-Content-Type-Options","nosniff")
 	_,_=io.Copy(w,reader)
 }
+
+func fileTree(domain string) (map[string]any,error) {
+	root,err:=sitegenerator.ResolveSitePath(domain,"/");if err!=nil{return nil,err}
+	var walk func(string,int)([]any,error)
+	walk=func(dir string,depth int)([]any,error){if depth>5{return nil,nil};entries,err:=os.ReadDir(dir);if err!=nil{return nil,err};out:=make([]any,0,len(entries));for _,e:=range entries{info,err:=e.Info();if err!=nil{continue};rel,_:=filepath.Rel(root,filepath.Join(dir,e.Name()));node:=map[string]any{"name":e.Name(),"path":"/"+filepath.ToSlash(rel),"is_dir":e.IsDir(),"size":info.Size(),"mode":info.Mode().String(),"mod_time":info.ModTime()};if e.IsDir(){children,_:=walk(filepath.Join(dir,e.Name()),depth+1);node["children"]=children};out=append(out,node)};return out,nil}
+	children,err:=walk(root,1);if err!=nil{return nil,err};return map[string]any{"name":domain,"path":"/","is_dir":true,"children":children},nil
+}
+
+func fileContent(domain,path string)(string,error){p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return "",err};fi,err:=os.Stat(p);if err!=nil{return "",err};if fi.IsDir(){return "",errors.New("path is a directory")};if fi.Size()>5*1024*1024{return "",errors.New("file exceeds 5MB limit")};b,err:=os.ReadFile(p);return string(b),err}
+
+func writeFileContent(domain,path,content string)error{if len(content)>5*1024*1024{return errors.New("file exceeds 5MB limit")};p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return err};if err:=os.MkdirAll(filepath.Dir(p),0750);err!=nil{return err};tmp,err:=os.CreateTemp(filepath.Dir(p),".edit-*");if err!=nil{return err};name:=tmp.Name();defer os.Remove(name);if _,err:=tmp.WriteString(content);err!=nil{_ = tmp.Close();return err};if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};if err:=os.Chmod(name,0640);err!=nil{return err};return os.Rename(name,p)}
 
 func write(w http.ResponseWriter,v agentproto.Response){w.Header().Set("Content-Type","application/json");if !v.OK{w.WriteHeader(http.StatusBadRequest)};_ = json.NewEncoder(w).Encode(v)}
