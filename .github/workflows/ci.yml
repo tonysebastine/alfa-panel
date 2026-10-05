@@ -55,20 +55,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Go vulnerability scan
-        uses: docker://golang:1.26
-        with:
-          args: sh -lc "go install golang.org/x/vuln/cmd/govulncheck@latest && cd go-src && go mod tidy && govulncheck ./..."
+        run: docker run --rm -v "$PWD:/workspace" -w /workspace golang:1.26 sh -lc 'go install golang.org/x/vuln/cmd/govulncheck@latest && cd go-src && go mod tidy && govulncheck ./...'
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          ignore-unfixed: true
+        run: docker run --rm -v "$PWD:/workspace" -w /workspace aquasec/trivy:0.66.0 fs --scanners vuln,secret,misconfig --ignore-unfixed .
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          path: .
-          format: spdx-json
-          artifact-name: alfa-panel-sbom.spdx.json
-          output-file: alfa-panel-sbom.spdx.json
+        run: docker run --rm -v "$PWD:/workspace" -w /workspace anchore/syft:1.35.0 dir:. -o spdx-json=alfa-panel-sbom.spdx.json
