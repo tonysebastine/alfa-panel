@@ -25,3 +25,15 @@ Before exposing the panel to customers:
 - verify backups with restore tests.
 
 This is a security policy and control description, not a certification.
+
+
+## Current hardening controls
+
+- Tenant Docker networks are dedicated per site; the previous shared tenant network is not used by generated workloads.
+- The public API is designed to run unprivileged and delegates Docker/filesystem operations through the root-owned Unix-socket agent.
+- Agent operations are typed; arbitrary container exec is disabled.
+- TOTP secrets in the durable identity store are encrypted with AES-GCM using PANEL_MASTER_KEY.
+- Refresh sessions are persisted and single-use rotated when the durable store is enabled.
+- Site deletion requires an exact-domain confirmation and performs proxy/network cleanup.
+- Backup restore creates a pre-restore backup before replacing site data.
+- WAR uploads are staged by the unprivileged API and activated by the agent after size, magic-byte, path, and context validation.
