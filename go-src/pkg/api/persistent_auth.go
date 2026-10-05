@@ -21,6 +21,7 @@ var (
 	persistentAuthMu sync.RWMutex
 	persistentAuthDB *store.Store
 	persistentAuthOnce sync.Once
+	persistentPruneOnce sync.Once
 )
 
 func masterKey() ([]byte,error) {
@@ -48,6 +49,7 @@ func ConfigurePersistentAuth(s *store.Store) {
 	persistentAuthMu.Lock()
 	defer persistentAuthMu.Unlock()
 	persistentAuthDB = s
+	persistentPruneOnce.Do(func(){go func(){ticker:=time.NewTicker(6*time.Hour);defer ticker.Stop();for range ticker.C{_ = s.Prune(time.Now().UTC(),90*24*time.Hour)}}()})
 }
 
 func persistentAuth() *store.Store {
