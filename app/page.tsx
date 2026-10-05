@@ -16,6 +16,7 @@ import { SiteFileManager } from '@/components/SiteFileManager';
 import { SecurityPenTester } from '@/components/SecurityPenTester';
 import { GoCodeExplorer } from '@/components/GoCodeExplorer';
 import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
+import SettingsView from '@/components/SettingsView';
 import LoginScreen from '@/components/LoginScreen';
 import { isAuthenticated, logout } from '@/lib/api-client';
 
@@ -112,7 +113,7 @@ export default function HomePage() {
       {/* 6. System Settings */}
       {currentNav === 'settings' && (
         <div className="space-y-6">
-          <SecurityPenTester />
+          <SettingsView />
         </div>
       )}
 
