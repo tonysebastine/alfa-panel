@@ -251,18 +251,9 @@ func (o *DockerOrchestrator) GetSiteStatus(ctx context.Context, domain string) (
 		Status: "not_found",
 	}
 
-	// Find container matching site slug
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{
-		All: true,
-	})
-	if err != nil {
-		return status, fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	slug := ResolveContainerName(cleanDomain)
+	// Resolve only the exact container name for this tenant.
 	var targetID string
 	var targetName string
-
 	targetID, targetName, err = o.findSiteContainer(ctx, cleanDomain, true)
 	if err != nil { return status, nil }
 
