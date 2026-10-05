@@ -216,6 +216,14 @@ func (o *DockerOrchestrator) StopSite(ctx context.Context, domain string) error 
 	return nil
 }
 
+func (o *DockerOrchestrator) EnsureSiteIngress(ctx context.Context, cfg *SiteConfig) error {
+	if err:=o.EnsureNetwork(ctx,cfg.NetworkName);err!=nil{return err}
+	if err:=o.cli.NetworkConnect(ctx,cfg.NetworkName,proxyContainerName(),nil);err!=nil&&!strings.Contains(strings.ToLower(err.Error()),"already exists"){return err}
+	pm:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli)
+	res,err:=pm.ApplyAndReload(ctx,BuildVhostConfig(cfg));if err!=nil{return err};if !res.Success{return fmt.Errorf("proxy reload failed: %s",res.Output)}
+	return nil
+}
+
 // DeleteSite performs a typed destructive lifecycle operation. It never accepts shell commands.
 func (o *DockerOrchestrator) DeleteSite(ctx context.Context, domain string, purge bool) error {
 	cleanDomain, err := SanitizeDomain(domain); if err != nil { return err }
