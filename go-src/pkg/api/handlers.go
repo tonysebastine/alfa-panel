@@ -89,40 +89,15 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 // HandleListSites scans /opt/panel/apps/sites/ and inspects live cgroup stats.
 func HandleListSites(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
-		return
+	if r.Method != http.MethodGet { http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed); return }
+	if agent.Enabled() {
+		b,err:=agent.Call(r.Context(),"list_sites","",false);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return}
+		var statuses []sitegenerator.SiteStatus;if err:=json.Unmarshal(b,&statuses);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid agent response");return}
+		writeJSON(w,http.StatusOK,map[string]any{"sites":statuses,"total":len(statuses)});return
 	}
-
-	baseDir := sitegenerator.BaseSitesDir
-	entries, err := os.ReadDir(baseDir)
-	if err != nil && !os.IsNotExist(err) {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed reading sites: %v", err))
-		return
-	}
-
-	var siteStatuses []sitegenerator.SiteStatus
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		domain := entry.Name()
-		// Get live Docker status if orchestrator is online
-		status, err := sitegenerator.GetSiteStatus(r.Context(), domain)
-		if err != nil {
-			siteStatuses = append(siteStatuses, sitegenerator.SiteStatus{
-				Domain: domain,
-				Status: "offline",
-			})
-		} else {
-			siteStatuses = append(siteStatuses, status)
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sites": siteStatuses,
-		"total": len(siteStatuses),
-	})
+	baseDir:=sitegenerator.BaseSitesDir;entries,err:=os.ReadDir(baseDir);if err!=nil&&!os.IsNotExist(err){writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("Failed reading sites: %v",err));return}
+	statuses:=make([]sitegenerator.SiteStatus,0,len(entries));for _,entry:=range entries{if !entry.IsDir(){continue};s,err:=sitegenerator.GetSiteStatus(r.Context(),entry.Name());if err!=nil{s=sitegenerator.SiteStatus{Domain:entry.Name(),Status:"offline"}};statuses=append(statuses,s)}
+	writeJSON(w,http.StatusOK,map[string]any{"sites":statuses,"total":len(statuses)})
 }
 
 // HandleCreateSite validates input, runs Turn 1 generator, and provisions Turn 3 OpenResty vhost.
