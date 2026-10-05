@@ -11,6 +11,7 @@ const (
 	PermSitesDeploy  = "sites.deploy"
 	PermSitesOperate = "sites.operate"
 	PermSitesDelete  = "sites.delete"
+	PermBackupsManage = "backups.manage"
 	PermUsersManage  = "users.manage"
 	PermAuditRead    = "audit.read"
 	PermSystemManage = "system.manage"
@@ -19,7 +20,7 @@ const (
 var rolePermissions = map[string]map[string]bool{
 	"owner": {
 		PermSitesRead:true, PermSitesCreate:true, PermSitesDeploy:true, PermSitesOperate:true, PermSitesDelete:true,
-		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true,
+		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true, PermBackupsManage:true, PermBackupsManage:true,
 	},
 	"admin": {
 		PermSitesRead:true, PermSitesCreate:true, PermSitesDeploy:true, PermSitesOperate:true, PermSitesDelete:true,
@@ -57,6 +58,8 @@ func SitePermissionForRequest(r *http.Request) string {
 		return PermSitesDeploy
 	case strings.HasSuffix(path, "/delete"):
 		return PermSitesDelete
+	case strings.Contains(path, "/backups/"):
+		return PermBackupsManage
 	default:
 		return PermSitesOperate
 	}
