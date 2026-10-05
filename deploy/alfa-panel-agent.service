@@ -1,0 +1,26 @@
+[Unit]
+Description=ALFA-PANEL privileged agent
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=alfa-panel-agent
+Environment=PANEL_AGENT_SOCKET=/run/alfa-panel/agent.sock
+ExecStart=/opt/alfa-panel/bin/panel-agentd
+Restart=on-failure
+RestartSec=3
+UMask=007
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/alfa-panel /opt/panel
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_NET_ADMIN CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_KILL
+LockPersonality=true
+MemoryDenyWriteExecute=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
