@@ -46,6 +46,7 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "stop":err=sitegenerator.StopSite(r.Context(),req.Domain)
 	case "restart":err=sitegenerator.RestartSite(r.Context(),req.Domain)
 	case "delete":err=sitegenerator.DeleteSite(r.Context(),req.Domain,req.Purge)
+	case "list_sites":data,err=listSites(r.Context())
 	case "status":var s sitegenerator.SiteStatus;s,err=sitegenerator.GetSiteStatus(r.Context(),req.Domain);data=s
 	case "install_deps":data,err=sitegenerator.InstallPythonDependencies(r.Context(),req.Domain)
 	case "backup_create":
@@ -98,6 +99,11 @@ func fileTree(domain string) (map[string]any,error) {
 func fileContent(domain,path string)(string,error){p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return "",err};fi,err:=os.Stat(p);if err!=nil{return "",err};if fi.IsDir(){return "",errors.New("path is a directory")};if fi.Size()>5*1024*1024{return "",errors.New("file exceeds 5MB limit")};b,err:=os.ReadFile(p);return string(b),err}
 
 func writeFileContent(domain,path,content string)error{if len(content)>5*1024*1024{return errors.New("file exceeds 5MB limit")};p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return err};if err:=os.MkdirAll(filepath.Dir(p),0750);err!=nil{return err};tmp,err:=os.CreateTemp(filepath.Dir(p),".edit-*");if err!=nil{return err};name:=tmp.Name();defer os.Remove(name);if _,err:=tmp.WriteString(content);err!=nil{_ = tmp.Close();return err};if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};if err:=os.Chmod(name,0640);err!=nil{return err};return os.Rename(name,p)}
+
+func listSites(ctx context.Context)([]sitegenerator.SiteStatus,error){
+	entries,err:=os.ReadDir(sitegenerator.BaseSitesDir);if err!=nil&& !os.IsNotExist(err){return nil,err}
+	out:=make([]sitegenerator.SiteStatus,0,len(entries));for _,entry:=range entries{if !entry.IsDir(){continue};s,err:=sitegenerator.GetSiteStatus(ctx,entry.Name());if err!=nil{s=sitegenerator.SiteStatus{Domain:entry.Name(),Status:"offline"}};out=append(out,s)};return out,nil
+}
 
 func deployWAR(domain,staging,contextName string)(map[string]any,error){
 	if contextName==""{contextName="ROOT"}
