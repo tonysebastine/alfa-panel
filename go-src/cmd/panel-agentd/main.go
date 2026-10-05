@@ -100,7 +100,7 @@ func fileTree(domain string) (map[string]any,error) {
 
 func fileContent(domain,path string)(string,error){p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return "",err};fi,err:=os.Stat(p);if err!=nil{return "",err};if fi.IsDir(){return "",errors.New("path is a directory")};if fi.Size()>5*1024*1024{return "",errors.New("file exceeds 5MB limit")};b,err:=os.ReadFile(p);return string(b),err}
 
-func writeFileContent(domain,path,content string)error{if len(content)>5*1024*1024{return errors.New("file exceeds 5MB limit")};p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return err};if err:=os.MkdirAll(filepath.Dir(p),0750);err!=nil{return err};tmp,err:=os.CreateTemp(filepath.Dir(p),".edit-*");if err!=nil{return err};name:=tmp.Name();defer os.Remove(name);if _,err:=tmp.WriteString(content);err!=nil{_ = tmp.Close();return err};if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};if err:=os.Chmod(name,0640);err!=nil{return err};return os.Rename(name,p)}
+func writeFileContent(domain,path,content string)error{if len(content)>5*1024*1024{return errors.New("file exceeds 5MB limit")};p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return err};if err:=os.MkdirAll(filepath.Dir(p),0750);err!=nil{return err};tmp,err:=os.CreateTemp(filepath.Dir(p),".edit-*");if err!=nil{return err};name:=tmp.Name();defer os.Remove(name);if _,err:=tmp.WriteString(content);err!=nil{_ = tmp.Close();return err};if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};if err:=os.Chmod(name,0640);err!=nil{return err};uid,gid,err:=sitegenerator.RuntimeIdentity(domain);if err!=nil{return err};if err:=os.Chown(name,uid,gid);err!=nil{return err};return os.Rename(name,p)}
 
 func listSites(ctx context.Context)([]sitegenerator.SiteStatus,error){
 	entries,err:=os.ReadDir(sitegenerator.BaseSitesDir);if err!=nil&& !os.IsNotExist(err){return nil,err}
@@ -124,6 +124,7 @@ func deployWAR(domain,staging,contextName string)(map[string]any,error){
 	f,err:=os.Open(abs);if err!=nil{return nil,err};magic:=make([]byte,4);_,err=io.ReadFull(f,magic);f.Close();if err!=nil||!(bytes.Equal(magic,[]byte{0x50,0x4B,0x03,0x04})||bytes.Equal(magic,[]byte{0x50,0x4B,0x05,0x06})||bytes.Equal(magic,[]byte{0x50,0x4B,0x07,0x08})){return nil,errors.New("invalid WAR archive")}
 	targetDir,err:=sitegenerator.ResolveSitePath(domain,"data/webapps");if err!=nil{return nil,err};if err:=os.MkdirAll(targetDir,0750);err!=nil{return nil,err}
 	target:=filepath.Join(targetDir,contextName+".war");if err:=os.Rename(abs,target);err!=nil{return nil,fmt.Errorf("atomic WAR activation failed: %w",err)}
+	uid,gid,err:=sitegenerator.RuntimeIdentity(domain);if err!=nil{return nil,err};if err:=os.Chown(target,uid,gid);err!=nil{return nil,err}
 	if err:=sitegenerator.RestartSite(context.Background(),domain);err!=nil{return map[string]any{"status":"deployed","restart_status":err.Error(),"context":contextName},nil}
 	return map[string]any{"status":"deployed","restart_status":"restarted","context":contextName},nil
 }
