@@ -84,10 +84,10 @@ func (o *DockerOrchestrator) Close() error {
 }
 
 // EnsureNetwork creates panel-network (bridge) if it does not already exist.
+func proxyContainerName() string { if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_CONTAINER")); v!="" { return v }; return DefaultProxyContainer }
+
 func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName string) error {
-	if networkName == "" {
-		networkName = "panel-network"
-	}
+	if networkName == "" { return errors.New("network name is required") }
 
 	netList, err := o.cli.NetworkList(ctx, network.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", networkName)),
@@ -107,7 +107,8 @@ func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName stri
 		Attachable: true,
 		Internal:   false,
 		Labels: map[string]string{
-			"managed_by": "1panel-agent",
+			"com.panel.managed": "true",
+			"com.panel.scope": "site",
 		},
 		Options: map[string]string{
 			"com.docker.network.bridge.enable_icc": "true",
@@ -122,9 +123,28 @@ func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName stri
 
 // ResolveContainerName gets deterministic container name for domain.
 func ResolveContainerName(domain string) string {
-	slug := strings.ReplaceAll(domain, ".", "_")
-	slug = strings.ReplaceAll(slug, "-", "_")
-	return slug
+	return SanitizeDomainToSlug(domain)
+}
+
+func siteContainerNames(domain string) map[string]bool {
+	slug := ResolveContainerName(domain)
+	return map[string]bool{
+		fmt.Sprintf("site_tomcat_%s", slug): true,
+		fmt.Sprintf("site_python_%s", slug): true,
+	}
+}
+
+func (o *DockerOrchestrator) findSiteContainer(ctx context.Context, domain string, all bool) (string,string,error) {
+	containers, err := o.cli.ContainerList(ctx, container.ListOptions{All:all})
+	if err != nil { return "","",fmt.Errorf("failed to list containers: %w",err) }
+	names := siteContainerNames(domain)
+	for _, c := range containers {
+		for _, name := range c.Names {
+			n := strings.TrimPrefix(name,"/")
+			if names[n] { return c.ID,n,nil }
+		}
+	}
+	return "","",fmt.Errorf("container not found for domain '%s'",domain)
 }
 
 // StartSite deploys the compose stack: docker compose -f /opt/panel/apps/sites/<domain>/docker-compose.yml up -d
@@ -142,9 +162,13 @@ func (o *DockerOrchestrator) StartSite(ctx context.Context, domain string) error
 		return fmt.Errorf("compose manifest not found at %s: %w", composePath, err)
 	}
 
-	// 1. Ensure external panel-network bridge exists
-	if err := o.EnsureNetwork(ctx, "panel-network"); err != nil {
-		return fmt.Errorf("failed ensuring panel-network: %w", err)
+	// 1. Ensure this tenant has a dedicated network and attach only the ingress proxy.
+	networkName := SiteNetworkName(cleanDomain)
+	if err := o.EnsureNetwork(ctx, networkName); err != nil {
+		return fmt.Errorf("failed ensuring site network: %w", err)
+	}
+	if err := o.cli.NetworkConnect(ctx, networkName, proxyContainerName(), nil); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		return fmt.Errorf("failed attaching proxy to site network: %w", err)
 	}
 
 	// 2. Execute docker compose up -d
@@ -239,19 +263,8 @@ func (o *DockerOrchestrator) GetSiteStatus(ctx context.Context, domain string) (
 	var targetID string
 	var targetName string
 
-	for _, c := range containers {
-		for _, name := range c.Names {
-			trimmedName := strings.TrimPrefix(name, "/")
-			if strings.Contains(trimmedName, slug) {
-				targetID = c.ID
-				targetName = trimmedName
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
+	targetID, targetName, err = o.findSiteContainer(ctx, cleanDomain, true)
+	if err != nil { return status, nil }
 
 	if targetID == "" {
 		return status, nil
@@ -339,26 +352,8 @@ func (o *DockerOrchestrator) StreamLogs(ctx context.Context, domain string) (io.
 		return nil, err
 	}
 
-	slug := ResolveContainerName(cleanDomain)
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{All: true})
+	targetID, _, err := o.findSiteContainer(ctx, cleanDomain, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	var targetID string
-	for _, c := range containers {
-		for _, name := range c.Names {
-			if strings.Contains(name, slug) {
-				targetID = c.ID
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
-
-	if targetID == "" {
 		return nil, fmt.Errorf("no container found for domain '%s'", cleanDomain)
 	}
 
@@ -384,73 +379,9 @@ func (o *DockerOrchestrator) StreamLogs(ctx context.Context, domain string) (io.
 	return pr, nil
 }
 
-// ExecInApp executes commands inside the running container (e.g. pip install -r requirements.txt).
+// ExecInApp is intentionally disabled. Use typed deployment operations instead.
 func (o *DockerOrchestrator) ExecInApp(ctx context.Context, domain string, cmd []string) (string, error) {
-	if len(cmd) == 0 {
-		return "", errors.New("command slice cannot be empty")
-	}
-
-	cleanDomain, err := SanitizeDomain(domain)
-	if err != nil {
-		return "", err
-	}
-
-	slug := ResolveContainerName(cleanDomain)
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	var targetID string
-	for _, c := range containers {
-		for _, name := range c.Names {
-			if strings.Contains(name, slug) {
-				targetID = c.ID
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
-
-	if targetID == "" {
-		return "", fmt.Errorf("running container not found for domain '%s'", cleanDomain)
-	}
-
-	execCfg := container.ExecOptions{
-		AttachStdout: true,
-		AttachStderr: true,
-		Cmd:          cmd,
-	}
-
-	execCreate, err := o.cli.ContainerExecCreate(ctx, targetID, execCfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to create exec: %w", err)
-	}
-
-	attach, err := o.cli.ContainerExecAttach(ctx, execCreate.ID, container.ExecStartOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to attach exec: %w", err)
-	}
-	defer attach.Close()
-
-	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, attach.Reader); err != nil {
-		return "", fmt.Errorf("error demuxing output: %w", err)
-	}
-
-	inspect, err := o.cli.ContainerExecInspect(ctx, execCreate.ID)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect exec: %w", err)
-	}
-
-	combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
-	if inspect.ExitCode != 0 {
-		return combined, fmt.Errorf("exec command exited with code %d: %s", inspect.ExitCode, combined)
-	}
-
-	return combined, nil
+	return "", errors.New("arbitrary container execution is disabled")
 }
 
 // Package-level functions delegating to DefaultDockerOrchestrator if present
