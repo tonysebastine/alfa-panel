@@ -101,3 +101,17 @@ func ConfigurePersistentAuthFromEnv() {
 		ConfigurePersistentAuth(s)
 	})
 }
+
+func CreatePersistentUser(username,password,totp,role string) (*store.User,error) {
+	s:=persistentAuth();if s==nil{return nil,errors.New("persistent auth unavailable")}
+	username=strings.TrimSpace(username);role=strings.ToLower(strings.TrimSpace(role))
+	if username==""||password==""||totp==""{return nil,errors.New("username, password and TOTP are required")}
+	switch role{case "owner","admin","developer","viewer":default:return nil,errors.New("invalid role")}
+	users,err:=s.ListUsers();if err!=nil{return nil,err};for _,u:=range users{if strings.EqualFold(u.Username,username){return nil,errors.New("username already exists")}}
+	hash,err:=bcrypt.GenerateFromPassword([]byte(password),bcrypt.DefaultCost);if err!=nil{return nil,err}
+	enc,err:=encryptSecret(totp);if err!=nil{return nil,err}
+	now:=time.Now().UTC();u:=store.User{ID:newUserID(),Username:username,PasswordHash:string(hash),Role:role,TOTPSecret:enc,Enabled:true,CreatedAt:now,UpdatedAt:now}
+	if err:=s.PutUser(u);err!=nil{return nil,err};u.TOTPSecret="";return &u,nil
+}
+
+func newUserID() string { b:=make([]byte,12);if _,err:=rand.Read(b);err!=nil{return "user-"+time.Now().UTC().Format("20060102150405.000000000")};return "user-"+hex.EncodeToString(b) }
