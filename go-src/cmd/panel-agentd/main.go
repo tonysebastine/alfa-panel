@@ -62,6 +62,9 @@ func operate(w http.ResponseWriter,r *http.Request){
 		data,err=fileTree(req.Domain)
 	case "file_content":
 		var p struct{Path string `json:"path"`};if err=json.Unmarshal(req.Payload,&p);err==nil{var body string;body,err=fileContent(req.Domain,p.Path);data=map[string]any{"path":p.Path,"content":body}}
+	case "deploy_war":
+		var p struct{Staging string `json:"staging"`;Context string `json:"context_name"`}
+		if err=json.Unmarshal(req.Payload,&p);err==nil{data,err=deployWAR(req.Domain,p.Staging,p.Context)}
 	case "file_write":
 		var p struct{Path string `json:"path"`;Content string `json:"content"`};if err=json.Unmarshal(req.Payload,&p);err==nil{err=writeFileContent(req.Domain,p.Path,p.Content);data=map[string]any{"path":p.Path,"status":"saved"}}
 	case "create_site":
@@ -94,5 +97,19 @@ func fileTree(domain string) (map[string]any,error) {
 func fileContent(domain,path string)(string,error){p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return "",err};fi,err:=os.Stat(p);if err!=nil{return "",err};if fi.IsDir(){return "",errors.New("path is a directory")};if fi.Size()>5*1024*1024{return "",errors.New("file exceeds 5MB limit")};b,err:=os.ReadFile(p);return string(b),err}
 
 func writeFileContent(domain,path,content string)error{if len(content)>5*1024*1024{return errors.New("file exceeds 5MB limit")};p,err:=sitegenerator.ResolveSitePath(domain,path);if err!=nil{return err};if err:=os.MkdirAll(filepath.Dir(p),0750);err!=nil{return err};tmp,err:=os.CreateTemp(filepath.Dir(p),".edit-*");if err!=nil{return err};name:=tmp.Name();defer os.Remove(name);if _,err:=tmp.WriteString(content);err!=nil{_ = tmp.Close();return err};if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err};if err:=tmp.Close();err!=nil{return err};if err:=os.Chmod(name,0640);err!=nil{return err};return os.Rename(name,p)}
+
+func deployWAR(domain,staging,contextName string)(map[string]any,error){
+	if contextName==""{contextName="ROOT"}
+	contextName=strings.TrimSuffix(strings.ReplaceAll(contextName,"/",""),".war")
+	for _,ch:=range contextName{if !(ch=='a'||ch=='b'||ch=='c'||ch=='d'||ch=='e'||ch=='f'||ch=='g'||ch=='h'||ch=='i'||ch=='j'||ch=='k'||ch=='l'||ch=='m'||ch=='n'||ch=='o'||ch=='p'||ch=='q'||ch=='r'||ch=='s'||ch=='t'||ch=='u'||ch=='v'||ch=='w'||ch=='x'||ch=='y'||ch=='z'||ch=='A'||ch=='B'||ch=='C'||ch=='D'||ch=='E'||ch=='F'||ch=='G'||ch=='H'||ch=='I'||ch=='J'||ch=='K'||ch=='L'||ch=='M'||ch=='N'||ch=='O'||ch=='P'||ch=='Q'||ch=='R'||ch=='S'||ch=='T'||ch=='U'||ch=='V'||ch=='W'||ch=='X'||ch=='Y'||ch=='Z'||ch=='0'||ch=='1'||ch=='2'||ch=='3'||ch=='4'||ch=='5'||ch=='6'||ch=='7'||ch=='8'||ch=='9'||ch=='_'||ch=='-'){return nil,errors.New("invalid WAR context name")}}
+	base:=filepath.Join("/opt/panel/data/uploads")
+	abs,err:=filepath.Abs(staging);if err!=nil{return nil,err};baseAbs,_:=filepath.Abs(base);if abs!=baseAbs&&!strings.HasPrefix(abs,baseAbs+string(os.PathSeparator)){return nil,errors.New("staging path escapes upload root")}
+	fi,err:=os.Stat(abs);if err!=nil{return nil,err};if fi.Size()>500*1024*1024{return nil,errors.New("WAR exceeds 500MB limit")}
+	f,err:=os.Open(abs);if err!=nil{return nil,err};magic:=make([]byte,4);_,err=io.ReadFull(f,magic);f.Close();if err!=nil||!(bytes.Equal(magic,[]byte{0x50,0x4B,0x03,0x04})||bytes.Equal(magic,[]byte{0x50,0x4B,0x05,0x06})||bytes.Equal(magic,[]byte{0x50,0x4B,0x07,0x08})){return nil,errors.New("invalid WAR archive")}
+	targetDir,err:=sitegenerator.ResolveSitePath(domain,"data/webapps");if err!=nil{return nil,err};if err:=os.MkdirAll(targetDir,0750);err!=nil{return nil,err}
+	target:=filepath.Join(targetDir,contextName+".war");if err:=os.Rename(abs,target);err!=nil{return nil,fmt.Errorf("atomic WAR activation failed: %w",err)}
+	if err:=sitegenerator.RestartSite(context.Background(),domain);err!=nil{return map[string]any{"status":"deployed","restart_status":err.Error(),"context":contextName},nil}
+	return map[string]any{"status":"deployed","restart_status":"restarted","context":contextName},nil
+}
 
 func write(w http.ResponseWriter,v agentproto.Response){w.Header().Set("Content-Type","application/json");if !v.OK{w.WriteHeader(http.StatusBadRequest)};_ = json.NewEncoder(w).Encode(v)}
