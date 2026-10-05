@@ -47,3 +47,28 @@ jobs:
           fetch-depth: 0
       - name: Run Gitleaks
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --redact --exit-code 1
+
+
+  dependency-and-filesystem-scan:
+    name: Dependency and filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Go vulnerability scan
+        uses: docker://golang:1.26
+        with:
+          args: sh -lc "go install golang.org/x/vuln/cmd/govulncheck@latest && cd go-src && go mod tidy && govulncheck ./..."
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          ignore-unfixed: true
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: alfa-panel-sbom.spdx.json
+          output-file: alfa-panel-sbom.spdx.json
