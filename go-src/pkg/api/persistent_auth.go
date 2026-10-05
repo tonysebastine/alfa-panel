@@ -15,6 +15,7 @@ import (
 var (
 	persistentAuthMu sync.RWMutex
 	persistentAuthDB *store.Store
+	persistentAuthOnce sync.Once
 )
 
 func ConfigurePersistentAuth(s *store.Store) {
@@ -61,4 +62,15 @@ func persistRefreshSession(userID, refreshToken string, expiresAt time.Time) err
 	claims, err := VerifyJWT(refreshToken); if err != nil { return err }
 	h := sha256.Sum256([]byte(refreshToken))
 	return s.PutSession(store.Session{ID:claims.JTI,UserID:userID,RefreshHash: string(h[:]),ExpiresAt:expiresAt,CreatedAt:time.Now().UTC()})
+}
+
+func ConfigurePersistentAuthFromEnv() {
+	path := strings.TrimSpace(os.Getenv("PANEL_STORE_PATH"))
+	if path == "" { return }
+	persistentAuthOnce.Do(func() {
+		s, err := store.Open(path)
+		if err != nil { panic(err) }
+		if err := BootstrapAdminIfNeeded(s); err != nil { _ = s.Close(); panic(err) }
+		ConfigurePersistentAuth(s)
+	})
 }
