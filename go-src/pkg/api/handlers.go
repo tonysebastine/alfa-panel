@@ -352,9 +352,8 @@ func HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
 func HandleCreateBackup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost { writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed"); return }
 	domain,err:=sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path));if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
-	m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups")
-	artifact,err:=m.Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("backup failed: %v",err));return}
-	writeJSON(w,http.StatusCreated,artifact)
+	if agent.Enabled(){b,err:=agent.CallJSON(r.Context(),"backup_create",domain,false,nil);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};var a backup.Artifact;if err:=json.Unmarshal(b,&a);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid backup response");return};writeJSON(w,http.StatusCreated,a);return}
+	a,err:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups").Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("backup failed: %v",err));return};writeJSON(w,http.StatusCreated,a)
 }
 
 func HandleRestoreBackup(w http.ResponseWriter, r *http.Request) {
@@ -362,10 +361,6 @@ func HandleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	domain,err:=sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path));if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
 	var req struct{ Artifact string `json:"artifact"` }
 	if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil || strings.TrimSpace(req.Artifact)=="" {writeJSONError(w,http.StatusBadRequest,"artifact is required");return}
-	m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups")
-	pre,err:=m.Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"pre-restore backup failed");return}
-	_ = sitegenerator.StopSite(r.Context(),domain)
-	if err:=m.Restore(domain,req.Artifact);err!=nil{_ = sitegenerator.StartSite(r.Context(),domain);writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore failed; pre-restore backup retained at %s: %v",pre.Path,err));return}
-	if err:=sitegenerator.StartSite(r.Context(),domain);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore completed but site failed to start; pre-restore backup retained at %s: %v",pre.Path,err));return}
-	writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"artifact":req.Artifact,"pre_restore_backup":pre.Path})
+	if agent.Enabled(){b,err:=agent.CallJSON(r.Context(),"backup_restore",domain,false,req);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"details":json.RawMessage(b)});return}
+	m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");pre,err:=m.Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"pre-restore backup failed");return};_ = sitegenerator.StopSite(r.Context(),domain);if err:=m.Restore(domain,req.Artifact);err!=nil{_ = sitegenerator.StartSite(r.Context(),domain);writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore failed; pre-restore backup retained at %s: %v",pre.Path,err));return};if err:=sitegenerator.StartSite(r.Context(),domain);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore completed but site failed to start; pre-restore backup retained at %s: %v",pre.Path,err));return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"artifact":req.Artifact,"pre_restore_backup":pre.Path})
 }
