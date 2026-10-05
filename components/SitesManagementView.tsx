@@ -167,10 +167,15 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
     catch (err) { showNotice(err instanceof Error ? err.message : 'Restart failed'); }
   };
 
-  const handleDeleteSite = (id: string) => {
-    const target = sites.find(s => s.id === id);
-    if (!target) return;
-    showNotice(`Deletion is intentionally disabled until the typed delete workflow is available.`);
+  const handleDeleteSite = async (id: string) => {
+    const target = sites.find(s => s.id === id); if (!target) return;
+    const confirmDomain = window.prompt(`Type ${target.domain} to confirm deletion. Leave purge unchecked by default.`);
+    if (confirmDomain !== target.domain) { showNotice('Deletion cancelled: exact domain confirmation required.'); return; }
+    try {
+      await api.deleteSite(target.domain, false);
+      setSites(prev => prev.filter(s => s.id !== id));
+      showNotice(`Site '${target.domain}' deleted; data directory retained for recovery.`);
+    } catch (err) { showNotice(err instanceof Error ? err.message : 'Deletion failed'); }
   };
 
   const handleCreated = (newSite: SiteItem) => {
