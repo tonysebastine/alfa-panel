@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/panel/panel-agent/pkg/agentproto"
@@ -102,7 +103,14 @@ func writeFileContent(domain,path,content string)error{if len(content)>5*1024*10
 
 func listSites(ctx context.Context)([]sitegenerator.SiteStatus,error){
 	entries,err:=os.ReadDir(sitegenerator.BaseSitesDir);if err!=nil&& !os.IsNotExist(err){return nil,err}
-	out:=make([]sitegenerator.SiteStatus,0,len(entries));for _,entry:=range entries{if !entry.IsDir(){continue};s,err:=sitegenerator.GetSiteStatus(ctx,entry.Name());if err!=nil{s=sitegenerator.SiteStatus{Domain:entry.Name(),Status:"offline"}};out=append(out,s)};return out,nil
+	type result struct{s sitegenerator.SiteStatus}
+	jobs:=make(chan string);results:=make(chan result)
+	var wg sync.WaitGroup
+	workers:=8;if len(entries)<workers{workers=len(entries)}
+	for i:=0;i<workers;i++{wg.Add(1);go func(){defer wg.Done();for domain:=range jobs{s,err:=sitegenerator.GetSiteStatus(ctx,domain);if err!=nil{s=sitegenerator.SiteStatus{Domain:domain,Status:"offline"}};results<-result{s:s}}}()}
+	go func(){for _,entry:=range entries{if entry.IsDir(){jobs<-entry.Name()}};close(jobs);wg.Wait();close(results)}()
+	out:=make([]sitegenerator.SiteStatus,0,len(entries));for r:=range results{out=append(out,r.s)}
+	return out,nil
 }
 
 func deployWAR(domain,staging,contextName string)(map[string]any,error){
