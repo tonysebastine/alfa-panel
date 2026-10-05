@@ -98,6 +98,14 @@ func NewRouter() http.Handler {
 		http.NotFound(w, r)
 	})
 
+	usersHandler:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+		if r.URL.Path=="/api/v1/users" { HandleUsers(w,r); return }
+		if strings.HasPrefix(r.URL.Path,"/api/v1/users/") { HandleDeleteUser(w,r); return }
+		http.NotFound(w,r)
+	})
+	mux.Handle("/api/v1/users",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermUsersManage,AuditMiddleware(usersHandler)))))
+	mux.Handle("/api/v1/users/",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermUsersManage,AuditMiddleware(usersHandler)))))
+
 	// Wrap sites with JWT protection and general rate limiter
 	mux.Handle("/api/v1/sites", generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
 	mux.Handle("/api/v1/sites/", generalRateLimiter.Middleware(JWTMiddleware(sitesHandler)))
