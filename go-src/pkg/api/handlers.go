@@ -364,3 +364,26 @@ func HandleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if agent.Enabled(){b,err:=agent.CallJSON(r.Context(),"backup_restore",domain,false,req);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"details":json.RawMessage(b)});return}
 	m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");pre,err:=m.Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"pre-restore backup failed");return};_ = sitegenerator.StopSite(r.Context(),domain);if err:=m.Restore(domain,req.Artifact);err!=nil{_ = sitegenerator.StartSite(r.Context(),domain);writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore failed; pre-restore backup retained at %s: %v",pre.Path,err));return};if err:=sitegenerator.StartSite(r.Context(),domain);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore completed but site failed to start; pre-restore backup retained at %s: %v",pre.Path,err));return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"artifact":req.Artifact,"pre_restore_backup":pre.Path})
 }
+
+func HandleUsers(w http.ResponseWriter,r *http.Request){
+	s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable");return}
+	switch r.Method{
+	case http.MethodGet:
+		users,err:=s.ListUsers();if err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to list users");return}
+		out:=make([]map[string]any,0,len(users));for _,u:=range users{out=append(out,map[string]any{"id":u.ID,"username":u.Username,"role":u.Role,"enabled":u.Enabled,"created_at":u.CreatedAt,"updated_at":u.UpdatedAt})};writeJSON(w,http.StatusOK,map[string]any{"users":out})
+	case http.MethodPost:
+		var req struct{Username string `json:"username"`;Password string `json:"password"`;TOTPCodeSecret string `json:"totp_secret"`;Role string `json:"role"`}
+		if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid request");return}
+		u,err:=CreatePersistentUser(req.Username,req.Password,req.TOTPCodeSecret,req.Role);if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
+		writeJSON(w,http.StatusCreated,u)
+	default:writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed")
+	}
+}
+
+func HandleDeleteUser(w http.ResponseWriter,r *http.Request){
+	if r.Method!=http.MethodDelete{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
+	id:=strings.TrimPrefix(r.URL.Path,"/api/v1/users/");id=strings.TrimSpace(strings.Trim(id,"/"));if id==""{writeJSONError(w,http.StatusBadRequest,"user id required");return}
+	claims,_:=r.Context().Value(UserContextKey).(*JWTClaims);if claims!=nil&&claims.Subject==id{writeJSONError(w,http.StatusBadRequest,"cannot delete current user");return}
+	if s:=persistentAuth();s!=nil{if err:=s.DeleteUser(id);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to delete user");return};writeJSON(w,http.StatusOK,map[string]string{"status":"deleted","id":id});return}
+	writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable")
+}
