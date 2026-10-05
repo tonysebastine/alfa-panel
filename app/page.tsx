@@ -7,7 +7,7 @@ import { SitesManagementView, SiteItem } from '@/components/SitesManagementView'
 import { SiteDetailView } from '@/components/SiteDetailView';
 import { SiteConfigurator } from '@/components/SiteConfigurator';
 import { GeneratedArtifactsView } from '@/components/GeneratedArtifactsView';
-import { DockerSocketSimulator } from '@/components/DockerSocketSimulator';
+import RuntimeView from '@/components/RuntimeView';
 import { FileManagerModal } from '@/components/FileManagerModal';
 import { HostMonitoringPanel } from '@/components/HostMonitoringPanel';
 import { HostMetricsOverview } from '@/components/HostMetricsOverview';
@@ -128,7 +128,7 @@ export default function HomePage() {
       {/* 8. Docker Socket & Logs (Turn 2) */}
       {currentNav === 'docker' && (
         <div className="space-y-6">
-          <DockerSocketSimulator config={config} />
+          <RuntimeView domain={selectedSite?.domain || config.domain} />
         </div>
       )}
 
