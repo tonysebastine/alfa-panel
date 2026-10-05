@@ -1,7 +1,11 @@
 package api
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"os"
 	"strings"
@@ -17,6 +21,27 @@ var (
 	persistentAuthDB *store.Store
 	persistentAuthOnce sync.Once
 )
+
+func masterKey() ([]byte,error) {
+	raw:=strings.TrimSpace(os.Getenv("PANEL_MASTER_KEY"))
+	if len(raw)<32 { return nil,errors.New("PANEL_MASTER_KEY must be configured with at least 32 bytes") }
+	sum:=sha256.Sum256([]byte(raw)); return sum[:],nil
+}
+
+func encryptSecret(plain string)(string,error){
+	key,err:=masterKey();if err!=nil{return "",err};block,err:=aes.NewCipher(key);if err!=nil{return "",err};gcm,err:=cipher.NewGCM(block);if err!=nil{return "",err}
+	nonce:=make([]byte,gcm.NonceSize());if _,err:=rand.Read(nonce);err!=nil{return "",err}
+	out:=gcm.Seal(nonce,nonce,[]byte(plain),nil);return "enc1:"+base64.RawStdEncoding.EncodeToString(out),nil
+}
+
+func decryptSecret(value string)(string,error){
+	if !strings.HasPrefix(value,"enc1:"){return value,nil}
+	key,err:=masterKey();if err!=nil{return "",err};block,err:=aes.NewCipher(key);if err!=nil{return "",err};gcm,err:=cipher.NewGCM(block);if err!=nil{return "",err}
+	data,err:=base64.RawStdEncoding.DecodeString(strings.TrimPrefix(value,"enc1:"));if err!=nil{return "",err}
+	n:=gcm.NonceSize();if len(data)<n{return "",errors.New("encrypted secret is malformed")}
+	plain,err:=gcm.Open(nil,data[:n],data[n:],nil);if err!=nil{return "",errors.New("encrypted secret authentication failed")}
+	return string(plain),nil
+}
 
 func ConfigurePersistentAuth(s *store.Store) {
 	persistentAuthMu.Lock()
@@ -38,6 +63,7 @@ func BootstrapAdminIfNeeded(s *store.Store) error {
 	hash := strings.TrimSpace(os.Getenv("PANEL_ADMIN_PASSWORD_BCRYPT"))
 	totp := strings.TrimSpace(os.Getenv("PANEL_TOTP_SECRET"))
 	if username == "" || hash == "" || totp == "" { return errors.New("persistent store is empty and bootstrap admin credentials are not configured") }
+	totp, err = encryptSecret(totp); if err != nil { return err }
 	now := time.Now().UTC()
 	return s.PutUser(store.User{ID:"admin-"+username,Username:username,PasswordHash:hash,Role:"admin",TOTPSecret:totp,Enabled:true,CreatedAt:now,UpdatedAt:now})
 }
@@ -50,7 +76,8 @@ func authenticatePersistent(username, password, code string) error {
 	for _, u := range users {
 		if !u.Enabled || !strings.EqualFold(u.Username, strings.TrimSpace(username)) { continue }
 		if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil { return errors.New("invalid credentials") }
-		if !VerifyTOTP(u.TOTPSecret, code, 30, 1) { return errors.New("invalid credentials") }
+		totp, err := decryptSecret(u.TOTPSecret); if err != nil { return errors.New("authentication backend unavailable") }
+		if !VerifyTOTP(totp, code, 30, 1) { return errors.New("invalid credentials") }
 		return nil
 	}
 	return errors.New("invalid credentials")
