@@ -1,6 +1,8 @@
 package sitegenerator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -163,7 +165,11 @@ func DefaultResourceLimits() ResourceLimits {
 // SiteNetworkName returns a deterministic Docker network name for one tenant.
 func SiteNetworkName(domain string) string {
 	slug := SanitizeDomainToSlug(domain)
-	return fmt.Sprintf("panel-site-%s", slug)
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(domain))))
+	suffix := hex.EncodeToString(sum[:])[:12]
+	if len(slug) > 42 { slug = slug[:42] }
+	slug = strings.Trim(slug, "_")
+	return fmt.Sprintf("panel-site-%s-%s", slug, suffix)
 }
 
 // NewSiteConfig creates a new SiteConfig initialized with production defaults.
