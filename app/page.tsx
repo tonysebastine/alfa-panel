@@ -56,7 +56,7 @@ export default function HomePage() {
         setSelectedSite(null);
         setCurrentNav(nav);
       }}
-      onLogout={async () => { await logout(); setAuthenticated(false); }}
+      onLogout={async () => { await logout(); window.location.reload(); }}
     >
       {/* 1. Sites View & Detail View */}
       {currentNav === 'sites' && (
