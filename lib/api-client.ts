@@ -64,4 +64,5 @@ export const api = {
   listSites: () => request<{sites:any[];total:number}>('/api/v1/sites'),
   createSite: (payload:any) => request('/api/v1/sites', {method:'POST',body:JSON.stringify(payload)}),
   siteAction: (domain:string, action:string) => request(`/api/v1/sites/${encodeURIComponent(domain)}/${action}`, {method:'POST'}),
+  deleteSite: (domain:string, purge:boolean) => request(`/api/v1/sites/${encodeURIComponent(domain)}/delete`, {method:'POST',body:JSON.stringify({confirm_domain:domain,purge})}),
 };
