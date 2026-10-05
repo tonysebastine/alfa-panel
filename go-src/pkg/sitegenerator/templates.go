@@ -180,9 +180,12 @@ services:
     cap_drop:
       {{range .Security.DropCaps}}- {{.}}
       {{end}}
-    cap_add:
+    {{if .Security.AddCaps}}cap_add:
       {{range .Security.AddCaps}}- {{.}}
-      {{end}}
+      {{end}}{{else}}cap_add: []{{end}}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
     
     environment:
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
