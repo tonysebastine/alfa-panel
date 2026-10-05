@@ -221,8 +221,10 @@ services:
       - no-new-privileges:true
     cap_drop:
 ${capDrops}
-    cap_add:
-${capAdds}
+    cap_add: []
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
     
     environment:
       - CATALINA_OPTS=\${CATALINA_OPTS}
@@ -256,7 +258,7 @@ ${capAdds}
       - site-network
 
 networks:
-  panel-network:
+  site-network:
     name: \${NETWORK_NAME}
     external: true
 `;
@@ -264,8 +266,7 @@ networks:
     const runnerCmd = cfg.pythonRunner === 'gunicorn' 
       ? `command: >
       sh -c "
-        if [ -f requirements.txt ]; then
-          exec gunicorn \${APP_MODULE} \\
+        exec gunicorn \${APP_MODULE} \\
           --bind 0.0.0.0:\${APP_PORT} \\
           --workers \${WORKERS} \\
           --threads \${THREADS} \\
@@ -275,8 +276,7 @@ networks:
       "`
       : `command: >
       sh -c "
-        if [ -f requirements.txt ]; then
-          exec uvicorn \${APP_MODULE} \\
+        exec uvicorn \${APP_MODULE} \\
           --host 0.0.0.0 \\
           --port \${APP_PORT} \\
           --workers \${WORKERS} \\
@@ -316,6 +316,7 @@ ${capAdds}
       - WORKERS=\${WORKERS}
       - THREADS=\${THREADS}
       - APP_MODULE=\${APP_MODULE}
+      - PYTHONPATH=/app/.panel-deps
       - TZ=UTC
     
     volumes:
