@@ -387,3 +387,10 @@ func HandleDeleteUser(w http.ResponseWriter,r *http.Request){
 	if s:=persistentAuth();s!=nil{if err:=s.DeleteUser(id);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to delete user");return};writeJSON(w,http.StatusOK,map[string]string{"status":"deleted","id":id});return}
 	writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable")
 }
+
+func HandleAudit(w http.ResponseWriter,r *http.Request){
+ if r.Method!=http.MethodGet{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
+ s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"audit store unavailable");return}
+ events,err:=s.ListAudit(100);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to read audit log");return}
+ writeJSON(w,http.StatusOK,map[string]any{"events":events})
+}
