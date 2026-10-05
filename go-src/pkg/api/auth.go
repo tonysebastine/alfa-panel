@@ -33,6 +33,9 @@ func SetJWTSecret(secret string) { jwtSecretKey = []byte(secret) }
 func init() { if s := strings.TrimSpace(os.Getenv("PANEL_JWT_SECRET")); s != "" { jwtSecretKey = []byte(s) } }
 
 func AuthenticateAdmin(username, password, totpCode string) error {
+	if persistentAuth() != nil {
+		return authenticatePersistent(username, password, totpCode)
+	}
 	expectedUser := strings.TrimSpace(os.Getenv("PANEL_ADMIN_USERNAME"))
 	hash := strings.TrimSpace(os.Getenv("PANEL_ADMIN_PASSWORD_BCRYPT"))
 	secret := strings.TrimSpace(os.Getenv("PANEL_TOTP_SECRET"))
@@ -43,6 +46,18 @@ func AuthenticateAdmin(username, password, totpCode string) error {
 
 func RefreshToken(token string) (*TokenPair, error) {
 	claims, err := VerifyJWT(token); if err != nil || claims.TokenType != "refresh" { return nil, errors.New("invalid refresh token") }
+	if s := persistentAuth(); s != nil {
+		session, err := s.GetSession(claims.JTI)
+		if err != nil || session.UserID != claims.Subject || session.RevokedAt != nil || time.Now().After(session.ExpiresAt) {
+			return nil, errors.New("refresh token has been revoked or expired")
+		}
+		key := sha256.Sum256([]byte(token))
+		if !hmac.Equal([]byte(session.RefreshHash), key[:]) { return nil, errors.New("refresh token has been revoked or expired") }
+		now := time.Now().UTC()
+		session.RevokedAt = &now
+		if err := s.PutSession(*session); err != nil { return nil, errors.New("failed to rotate refresh session") }
+		return GenerateTokenPair(claims.Subject, claims.Role)
+	}
 	key := sha256.Sum256([]byte(token)); refreshStore.Lock(); expiry, ok := refreshStore.tokens[key]; if ok { delete(refreshStore.tokens, key) }; refreshStore.Unlock()
 	if !ok || time.Now().After(expiry) { return nil, errors.New("refresh token has been revoked or expired") }
 	return GenerateTokenPair(claims.Subject, claims.Role)
@@ -106,7 +121,11 @@ func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 	}
 
 	pair := &TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: 900, TokenType: "Bearer"}
-	refreshStore.Lock(); refreshStore.tokens[sha256.Sum256([]byte(refreshToken))] = now.Add(7 * 24 * time.Hour); refreshStore.Unlock()
+	if persistentAuth() != nil {
+		if err := persistRefreshSession(userID, refreshToken, now.Add(7*24*time.Hour)); err != nil { return nil, fmt.Errorf("failed to persist refresh session: %w", err) }
+	} else {
+		refreshStore.Lock(); refreshStore.tokens[sha256.Sum256([]byte(refreshToken))] = now.Add(7 * 24 * time.Hour); refreshStore.Unlock()
+	}
 	return pair, nil
 }
 
