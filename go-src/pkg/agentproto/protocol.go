@@ -1,5 +1,7 @@
 package agentproto
 
+import "encoding/json"
+
 type Request struct {
 	Operation string `json:"operation"`
 	Domain string `json:"domain,omitempty"`
