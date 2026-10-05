@@ -74,7 +74,7 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "create_site":
 		var cfg sitegenerator.SiteConfig
 		if err=json.Unmarshal(req.Payload,&cfg);err==nil {
-			res,e:=sitegenerator.NewGenerator(false).GenerateSite(&cfg);err=e;data=res;if err==nil && sitegenerator.DefaultDockerOrchestrator!=nil { err=sitegenerator.DefaultDockerOrchestrator.EnsureSiteIngress(r.Context(),&cfg) }
+			res,e:=sitegenerator.NewGenerator(false).GenerateSite(&cfg);err=e;data=res;if err==nil && sitegenerator.DefaultDockerOrchestrator!=nil { err=sitegenerator.DefaultDockerOrchestrator.EnsureSiteIngress(r.Context(),&cfg); if err!=nil { _=sitegenerator.DefaultDockerOrchestrator.DeleteSite(r.Context(),cfg.Domain,true) } }
 		}
 	default:err=errors.New("operation not allowed")
 	}
