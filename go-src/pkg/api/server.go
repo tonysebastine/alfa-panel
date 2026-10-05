@@ -58,6 +58,14 @@ func NewRouter() http.Handler {
 			HandleDeleteSite(w, r)
 			return
 		}
+		if strings.HasSuffix(path, "/backups/create") {
+			HandleCreateBackup(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/backups/restore") {
+			HandleRestoreBackup(w, r)
+			return
+		}
 		if strings.HasSuffix(path, "/logs") {
 			HandleSiteLogs(w, r)
 			return
