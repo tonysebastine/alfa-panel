@@ -113,5 +113,5 @@ func NewRouter() http.Handler {
 	mux.Handle("/api/v1/sites/", generalRateLimiter.Middleware(JWTMiddleware(sitesHandler)))
 
 	// Wrap all routes with security headers
-	return SecurityHeadersMiddleware(mux)
+	return SecurityHeadersMiddleware(CORSMiddleware(mux))
 }
