@@ -148,10 +148,10 @@ services:
       start_period: 40s
     
     networks:
-      - ${NETWORK_NAME}
+      - site-network
 
 networks:
-  panel-network:
+  site-network:
     name: ${NETWORK_NAME}
     external: true
 `
@@ -242,10 +242,10 @@ services:
       start_period: 20s
     
     networks:
-      - ${NETWORK_NAME}
+      - site-network
 
 networks:
-  panel-network:
+  site-network:
     name: ${NETWORK_NAME}
     external: true
 `
