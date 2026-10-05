@@ -117,6 +117,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /usr/local/tomcat/temp:rw,nosuid,nodev,size=128m
+      - /usr/local/tomcat/work:rw,nosuid,nodev,size=256m
     cap_add: []
     
     environment:
