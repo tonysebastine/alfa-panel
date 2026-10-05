@@ -4,6 +4,7 @@ type Request struct {
 	Operation string `json:"operation"`
 	Domain string `json:"domain,omitempty"`
 	Purge bool `json:"purge,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 type Response struct {
