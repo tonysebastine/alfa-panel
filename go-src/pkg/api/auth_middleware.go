@@ -6,6 +6,7 @@ import (
     "io"
     "net/http"
     "strings"
+    "time"
 )
 
 // SecureLoginMiddleware performs the real credential check before the legacy token issuer.
@@ -41,6 +42,14 @@ func HandleRefresh(w http.ResponseWriter, r *http.Request) {
 func HandleLogout(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost { writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed"); return }
     var req struct { RefreshToken string `json:"refresh_token"` }
-    if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) == nil && req.RefreshToken != "" { RevokeRefreshToken(req.RefreshToken) }
+    if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) == nil && req.RefreshToken != "" {
+		if s := persistentAuth(); s != nil {
+			if claims, err := VerifyJWT(req.RefreshToken); err == nil {
+				if session, err := s.GetSession(claims.JTI); err == nil {
+					now := time.Now().UTC(); session.RevokedAt = &now; _ = s.PutSession(*session)
+				}
+			}
+		} else { RevokeRefreshToken(req.RefreshToken) }
+	}
     writeJSON(w, http.StatusNoContent, nil)
 }
