@@ -39,6 +39,12 @@ func Call(ctx context.Context,operation,domain string,purge bool)(json.RawMessag
 	b,err:=json.Marshal(out.Data);if err!=nil{return nil,err};return b,nil
 }
 
+func CallJSON(ctx context.Context,operation,domain string,purge bool,payload any)(json.RawMessage,error){
+	b,err:=json.Marshal(payload);if err!=nil{return nil,err}
+	out,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:operation,Domain:domain,Purge:purge,Payload:b})
+	if err!=nil{return nil,err};data,err:=json.Marshal(out.Data);return data,err
+}
+
 func Logs(ctx context.Context,domain string)(io.ReadCloser,error){
 	c:=New(os.Getenv("PANEL_AGENT_SOCKET"));r,err:=http.NewRequestWithContext(ctx,http.MethodGet,"http://agent/v1/logs?domain="+neturl(domain),nil);if err!=nil{return nil,err};resp,err:=c.http.Do(r);if err!=nil{return nil,err};if resp.StatusCode>=400{defer resp.Body.Close();b,_:=io.ReadAll(io.LimitReader(resp.Body,1<<16));return nil,errors.New(string(b))};return resp.Body,nil
 }
