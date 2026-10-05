@@ -20,11 +20,11 @@ const (
 var rolePermissions = map[string]map[string]bool{
 	"owner": {
 		PermSitesRead:true, PermSitesCreate:true, PermSitesDeploy:true, PermSitesOperate:true, PermSitesDelete:true,
-		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true, PermBackupsManage:true, PermBackupsManage:true,
+		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true, PermBackupsManage:true,
 	},
 	"admin": {
 		PermSitesRead:true, PermSitesCreate:true, PermSitesDeploy:true, PermSitesOperate:true, PermSitesDelete:true,
-		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true,
+		PermUsersManage:true, PermAuditRead:true, PermSystemManage:true, PermBackupsManage:true,
 	},
 	"developer": {
 		PermSitesRead:true, PermSitesCreate:true, PermSitesDeploy:true, PermSitesOperate:true,
