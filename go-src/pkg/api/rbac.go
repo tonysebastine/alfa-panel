@@ -61,3 +61,15 @@ func SitePermissionForRequest(r *http.Request) string {
 		return PermSitesOperate
 	}
 }
+
+func RequireSitePermission(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		permission := SitePermissionForRequest(r)
+		claims, ok := r.Context().Value(UserContextKey).(*JWTClaims)
+		if !ok || claims == nil || !HasPermission(claims.Role, permission) {
+			writeJSONError(w, http.StatusForbidden, "insufficient permissions for this site operation")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
