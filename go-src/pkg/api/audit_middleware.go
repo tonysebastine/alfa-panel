@@ -24,7 +24,7 @@ func (w *auditResponseWriter) Write(p []byte) (int,error) {
 func newAuditID() string {
 	b:=make([]byte,16)
 	if _,err:=rand.Read(b);err!=nil { return time.Now().UTC().Format("20060102150405.000000000") }
-	return hex.EncodeToString(b)
+	return time.Now().UTC().Format("20060102T150405.000000000Z")+"-"+hex.EncodeToString(b)
 }
 
 func AuditMiddleware(next http.Handler) http.Handler {
