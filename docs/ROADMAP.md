@@ -1,0 +1,67 @@
+# ALFA-PANEL Production Roadmap
+
+This file is the dependency-aware implementation checklist. A phase is only considered complete when code, API, UI, security controls, tests, documentation, and CI are aligned.
+
+## Completed in production-hardening
+
+- [x] Per-site Docker network model and proxy attachment
+- [x] Read-only rootfs, tmpfs, no-new-privileges and capability hardening
+- [x] Arbitrary container exec removed from API/control UI
+- [x] Persistent embedded identity/session/audit store
+- [x] RBAC enforcement on site, user, backup and audit APIs
+- [x] Encrypted TOTP secrets at rest
+- [x] Refresh-token persistence and rotation
+- [x] Typed privileged Unix-socket agent
+- [x] Site creation/lifecycle routed through the agent
+- [x] Secure file management routed through the agent
+- [x] Typed WAR staging/activation
+- [x] Backup/restore with pre-restore backup
+- [x] Exact-domain destructive deletion confirmation
+- [x] Strict CORS origin allowlist
+- [x] Trusted proxy CIDR validation
+- [x] Production API entrypoint and hardened systemd units
+- [x] Installer and operations documentation
+- [x] Production authentication UI
+- [x] User/RBAC/audit settings UI
+- [x] Simulated Docker console removed from production UI
+- [x] Runtime ownership alignment for non-root workloads
+- [x] Dependency/security scan and SBOM CI stages
+
+## Remaining release gates
+
+- [ ] ACME HTTP-01/DNS-01 certificate lifecycle integrated with the production proxy deployment
+- [ ] Certificate renewal scheduler and expiry notifications
+- [ ] Full reverse-proxy deployment/upgrade lifecycle
+- [ ] Database migration/versioning framework for future store schema changes
+- [ ] Full user lifecycle: password reset, MFA enrollment/recovery, session/device management UI
+- [ ] Backup retention scheduler and encrypted off-host backup target
+- [ ] Host firewall/nftables typed management
+- [ ] Host metrics and container metrics agent endpoints
+- [ ] Real-time log streaming UI using authenticated access tokens
+- [ ] API OpenAPI specification and generated client contract tests
+- [ ] Staging/disposable-node E2E environment
+- [ ] Failure-injection tests: proxy failure, Docker failure, disk full, OOM, interrupted deployment
+- [ ] Upgrade/rollback automation with migration rollback
+- [ ] Container image digest pinning and image vulnerability policy
+- [ ] Performance/load benchmarks and regression thresholds
+- [ ] Independent security review/penetration test
+- [ ] Final compliance evidence package
+
+## Definition of Done
+
+A phase is not closed by code alone. It requires:
+
+1. Backend implementation.
+2. Privilege boundary review.
+3. Tenant-isolation review.
+4. API authorization tests.
+5. Frontend UX and responsive-state review.
+6. Performance impact review.
+7. Failure/rollback behavior.
+8. CI green.
+9. Documentation updated.
+10. E2E evidence on a disposable host where infrastructure behavior is involved.
+
+## Release status
+
+The branch is a production-hardening candidate, not yet a v1.0 release. Infrastructure E2E and the remaining release gates must pass before production certification.
