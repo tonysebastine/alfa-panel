@@ -38,9 +38,10 @@ interface DashboardShellProps {
   currentNav: NavigationItem;
   onNavigate: (nav: NavigationItem) => void;
   children: React.ReactNode;
+  onLogout?: () => void;
 }
 
-export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNavigate, children }) => {
+export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNavigate, children, onLogout }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -137,6 +138,12 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
           )}
         </div>
       </aside>
+
+      {userMenuOpen && onLogout && (
+        <div className="fixed right-4 top-16 z-50 rounded-xl border border-slate-800 bg-slate-900 shadow-xl p-2">
+          <button onClick={onLogout} className="px-3 py-2 text-xs text-rose-300 hover:bg-slate-800 rounded-lg w-full text-left">Sign out</button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
