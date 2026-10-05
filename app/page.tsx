@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useSyncExternalStore, useState } from 'react';
 import { defaultSiteConfig, SiteConfigState } from '@/lib/generator-client';
 import { DashboardShell, NavigationItem } from '@/components/DashboardShell';
 import { SitesManagementView, SiteItem } from '@/components/SitesManagementView';
@@ -20,14 +20,11 @@ import LoginScreen from '@/components/LoginScreen';
 import { isAuthenticated, logout } from '@/lib/api-client';
 
 export default function HomePage() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  useEffect(() => { setAuthenticated(isAuthenticated()); setAuthChecked(true); }, []);
-  if (!authChecked) return <div className="min-h-screen bg-slate-950" />;
-  if (!authenticated) return <LoginScreen onAuthenticated={() => setAuthenticated(true)} />;
+  const authenticated = useSyncExternalStore(() => () => {}, isAuthenticated, () => false);
   const [currentNav, setCurrentNav] = useState<NavigationItem>('sites');
   const [selectedSite, setSelectedSite] = useState<SiteItem | null>(null);
   const [config, setConfig] = useState<SiteConfigState>(defaultSiteConfig);
+  if (!authenticated) return <LoginScreen onAuthenticated={() => window.location.reload()} />;
 
   const handleOpenDetail = (site: SiteItem) => {
     setSelectedSite(site);
