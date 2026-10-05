@@ -40,69 +40,6 @@ export interface SiteItem {
   createdAt: string;
 }
 
-const initialSites: SiteItem[] = [
-  {
-    id: '1',
-    domain: 'api.production.example.com',
-    type: 'tomcat',
-    runtimeName: 'Tomcat 10.1 / Temurin 21',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 14.2,
-    cpuLimit: '2.0 cores',
-    memoryUsedMB: 482,
-    memoryLimitMB: 2048,
-    port: 8080,
-    containerName: 'site_tomcat_api_production_example_com',
-    createdAt: '2 days ago',
-  },
-  {
-    id: '2',
-    domain: 'fastapi.corp.internal',
-    type: 'python',
-    runtimeName: 'Python 3.12 / FastAPI (Uvicorn)',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 5.8,
-    cpuLimit: '1.5 cores',
-    memoryUsedMB: 168,
-    memoryLimitMB: 1024,
-    port: 8000,
-    containerName: 'site_python_fastapi_corp_internal',
-    createdAt: '5 days ago',
-  },
-  {
-    id: '3',
-    domain: 'auth.legacy.internal',
-    type: 'tomcat',
-    runtimeName: 'Tomcat 9.0 / Temurin 11',
-    status: 'stopped',
-    ssl: 'expiring',
-    cpuPercent: 0.0,
-    cpuLimit: '1.0 cores',
-    memoryUsedMB: 0,
-    memoryLimitMB: 1536,
-    port: 8080,
-    containerName: 'site_tomcat_auth_legacy_internal',
-    createdAt: '2 weeks ago',
-  },
-  {
-    id: '4',
-    domain: 'analytics.worker.internal',
-    type: 'python',
-    runtimeName: 'Python 3.11 / Gunicorn (WSGI)',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 8.4,
-    cpuLimit: '1.5 cores',
-    memoryUsedMB: 215,
-    memoryLimitMB: 1024,
-    port: 8000,
-    containerName: 'site_python_analytics_worker_internal',
-    createdAt: '3 weeks ago',
-  },
-];
-
 interface SitesManagementViewProps {
   onSelectSite?: (site: SiteItem) => void;
   onOpenTerminal?: (site: SiteItem) => void;
