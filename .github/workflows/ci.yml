@@ -58,5 +58,7 @@ jobs:
         run: docker run --rm -v "$PWD:/workspace" -w /workspace golang:1.26 sh -lc 'go install golang.org/x/vuln/cmd/govulncheck@latest && cd go-src && go mod tidy && govulncheck ./...'
       - name: Trivy filesystem scan
         run: docker run --rm -v "$PWD:/workspace" -w /workspace aquasec/trivy:0.66.0 fs --scanners vuln,secret,misconfig --ignore-unfixed .
+      - name: Verify systemd units
+        run: systemd-analyze verify deploy/alfa-panel-agent.service deploy/alfa-panel-api.service
       - name: Generate SBOM
         run: docker run --rm -v "$PWD:/workspace" -w /workspace anchore/syft:1.35.0 dir:. -o spdx-json=alfa-panel-sbom.spdx.json
