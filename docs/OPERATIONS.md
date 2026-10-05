@@ -53,3 +53,17 @@ Expected workload posture: no public port binding, ALL in CapDrop, and no-new-pr
 ## Backup requirement
 
 Back up site data, panel metadata, certificates/ACME state where appropriate, and configuration. Test restoration on a separate environment at least quarterly for production deployments.
+
+
+## Production install
+
+Use deploy/install.sh on a supported Linux host with Docker and Go 1.26+. The installer creates separate API and privileged-agent systemd services. Configure /etc/alfa-panel/api.env before starting them. The API should remain bound to localhost and be exposed through the reverse proxy.
+
+Required production secrets include PANEL_JWT_SECRET, PANEL_MASTER_KEY, PANEL_ADMIN_USERNAME, PANEL_ADMIN_PASSWORD_BCRYPT, and PANEL_TOTP_SECRET. Do not commit these values.
+
+## Service verification
+
+- systemctl status alfa-panel-agent
+- systemctl status alfa-panel-api
+- test -S /run/alfa-panel/agent.sock
+- curl http://127.0.0.1:8088/healthz
