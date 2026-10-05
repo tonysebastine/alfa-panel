@@ -67,7 +67,6 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     api.listSites().then(result => {
       if (cancelled) return;
       setSites((result.sites || []).map((s: any) => ({
