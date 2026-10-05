@@ -11,6 +11,8 @@ Environment=PANEL_AGENT_SOCKET=/run/alfa-panel/agent.sock
 ExecStart=/opt/alfa-panel/bin/panel-agentd
 Restart=on-failure
 RestartSec=3
+RuntimeDirectory=alfa-panel
+RuntimeDirectoryMode=0750
 UMask=007
 PrivateTmp=true
 ProtectSystem=strict
