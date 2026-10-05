@@ -149,19 +149,15 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 
 // extractIP obtains the client IP address considering reverse proxy headers.
 func extractIP(r *http.Request) string {
-	if os.Getenv("PANEL_TRUST_PROXY") != "true" { host, _, err := net.SplitHostPort(r.RemoteAddr); if err == nil { return host }; return r.RemoteAddr }
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
+	remote:=r.RemoteAddr;host,_,err:=net.SplitHostPort(remote);if err!=nil{host=remote}
+	if os.Getenv("PANEL_TRUST_PROXY")!="true"{return host}
+	remoteIP:=net.ParseIP(host);if remoteIP==nil{return host}
+	trusted:=false
+	for _,raw:=range strings.Split(os.Getenv("PANEL_TRUSTED_PROXY_CIDRS"),","){
+		_,cidr,err:=net.ParseCIDR(strings.TrimSpace(raw));if err==nil&&cidr.Contains(remoteIP){trusted=true;break}
 	}
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
-		return strings.TrimSpace(realIP)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return r.RemoteAddr
+	if !trusted{return host}
+	if forwarded:=r.Header.Get("X-Forwarded-For");forwarded!=""{parts:=strings.Split(forwarded,",");if ip:=net.ParseIP(strings.TrimSpace(parts[0]));ip!=nil{return ip.String()}}
+	if real:=net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")));real!=nil{return real.String()}
+	return host
 }
