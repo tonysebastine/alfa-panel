@@ -25,6 +25,9 @@ func main() {
 	if len(strings.TrimSpace(os.Getenv("PANEL_MASTER_KEY"))) < 32 {
 		log.Fatal("PANEL_MASTER_KEY must be configured with at least 32 bytes")
 	}
+	if strings.TrimSpace(os.Getenv("PANEL_AGENT_SOCKET")) == "" {
+		log.Fatal("PANEL_AGENT_SOCKET must be configured")
+	}
 
 	addr := os.Getenv("PANEL_API_LISTEN")
 	if addr == "" { addr = "127.0.0.1:8088" }
