@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/backup"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
@@ -179,19 +180,21 @@ func HandleCreateSite(w http.ResponseWriter, r *http.Request) {
 		if req.Workers > 0 { cfg.Python.Workers = req.Workers }
 	}
 
-	gen := sitegenerator.NewGenerator(false)
-	res, err := gen.GenerateSite(cfg)
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("site provisioning failed: %v", err))
-		return
+	var res *sitegenerator.GenerationResult
+	if agent.Enabled() {
+		payload, callErr := agent.CallJSON(r.Context(), "create_site", cleanDomain, false, cfg)
+		if callErr != nil { writeJSONError(w,http.StatusBadRequest,fmt.Sprintf("site provisioning failed: %v",callErr));return }
+		var generated sitegenerator.GenerationResult
+		if err:=json.Unmarshal(payload,&generated);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid agent response");return}
+		res=&generated
+	} else {
+		var genErr error
+		res, genErr = sitegenerator.NewGenerator(false).GenerateSite(cfg)
+		if genErr != nil { writeJSONError(w,http.StatusBadRequest,fmt.Sprintf("site provisioning failed: %v",genErr));return }
 	}
-
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"status":      "created",
-		"domain":      cleanDomain,
-		"site_path":   res.SitePath,
-		"vhost_path":  res.ProxyConfigPath,
-		"ssl_enabled": req.EnableSSL,
+		"status":"created","domain":cleanDomain,"site_path":res.SitePath,"vhost_path":res.ProxyConfigPath,
+		"container_name":res.ContainerName,"ssl_enabled":req.EnableSSL,
 	})
 }
 // HandleSiteAction handles /api/v1/sites/:domain/{start|stop|restart}.
