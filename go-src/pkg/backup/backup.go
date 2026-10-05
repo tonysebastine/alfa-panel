@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"bufio"
+	"strconv"
 	"path/filepath"
 	"strings"
 	"time"
@@ -66,6 +68,10 @@ func (m *Manager) Create(domain string) (*Artifact,error) {
 
 func randomID() string { b:=make([]byte,6);if _,err:=rand.Read(b);err!=nil{return "random"};return hex.EncodeToString(b) }
 
+func runtimeIdentity(siteDir string)(int,int,error){
+	uid,gid:=1001,1001;f,err:=os.Open(filepath.Join(siteDir,".env"));if err!=nil{return uid,gid,nil};defer f.Close();sc:=bufio.NewScanner(f);for sc.Scan(){k,v,ok:=strings.Cut(strings.TrimSpace(sc.Text()),"=");if !ok{continue};if k=="UID"{if n,e:=strconv.Atoi(strings.TrimSpace(v));e==nil{uid=n}};if k=="GID"{if n,e:=strconv.Atoi(strings.TrimSpace(v));e==nil{gid=n}}};if err:=sc.Err();err!=nil{return 0,0,err};if uid<1000||gid<1000{return 0,0,errors.New("invalid runtime identity")};return uid,gid,nil
+}
+
 func (m *Manager) Restore(domain, artifact string) error {
 	dst,err:=validDomainPath(m.SitesDir,domain);if err!=nil{return err}
 	base,err:=filepath.Abs(m.BackupDir);if err!=nil{return err}
@@ -87,5 +93,7 @@ func (m *Manager) Restore(domain, artifact string) error {
 		out,err:=os.OpenFile(target,os.O_CREATE|os.O_TRUNC|os.O_WRONLY,os.FileMode(h.Mode)&0777);if err!=nil{return err}
 		if _,err=io.Copy(out,tr);cerr:=out.Close();err==nil{err=cerr};if err!=nil{return err}
 	}
+	uid,gid,_:=runtimeIdentity(dst)
+	_ = filepath.Walk(dst,func(path string,info os.FileInfo,walkErr error) error{if walkErr!=nil||info==nil{return walkErr};if filepath.Clean(path)==filepath.Join(dst,".env"){return nil};_ = os.Chown(path,uid,gid);return nil})
 	return nil
 }
