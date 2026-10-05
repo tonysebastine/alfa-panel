@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/panel/panel-agent/pkg/agentproto"
-	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
 
 const DefaultSocket="/run/alfa-panel/agent.sock"
@@ -34,23 +33,15 @@ func call(ctx context.Context,c *Client,req agentproto.Request)(agentproto.Respo
 	var out agentproto.Response;if err:=json.NewDecoder(io.LimitReader(resp.Body,1<<20)).Decode(&out);err!=nil{return out,err};if !out.OK{return out,errors.New(out.Error)};return out,nil
 }
 
-func Start(ctx context.Context,domain string)error{_,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"start",Domain:domain});return err}
-func Stop(ctx context.Context,domain string)error{_,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"stop",Domain:domain});return err}
-func Restart(ctx context.Context,domain string)error{_,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"restart",Domain:domain});return err}
-func Delete(ctx context.Context,domain string,purge bool)error{_,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"delete",Domain:domain,Purge:purge});return err}
-
-func Status(ctx context.Context,domain string)(sitegenerator.SiteStatus,error){
-	out,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"status",Domain:domain});if err!=nil{return sitegenerator.SiteStatus{},err}
-	b,_:=json.Marshal(out.Data);var s sitegenerator.SiteStatus;if err:=json.Unmarshal(b,&s);err!=nil{return s,err};return s,nil
-}
-
-func InstallDeps(ctx context.Context,domain string)(string,error){
-	out,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:"install_deps",Domain:domain});if err!=nil{return "",err};if s,ok:=out.Data.(string);ok{return s,nil};b,_:=json.Marshal(out.Data);return string(b),nil
+func Call(ctx context.Context,operation,domain string,purge bool)(json.RawMessage,error){
+	out,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:operation,Domain:domain,Purge:purge})
+	if err!=nil{return nil,err}
+	b,err:=json.Marshal(out.Data);if err!=nil{return nil,err};return b,nil
 }
 
 func Logs(ctx context.Context,domain string)(io.ReadCloser,error){
 	c:=New(os.Getenv("PANEL_AGENT_SOCKET"));r,err:=http.NewRequestWithContext(ctx,http.MethodGet,"http://agent/v1/logs?domain="+neturl(domain),nil);if err!=nil{return nil,err};resp,err:=c.http.Do(r);if err!=nil{return nil,err};if resp.StatusCode>=400{defer resp.Body.Close();b,_:=io.ReadAll(io.LimitReader(resp.Body,1<<16));return nil,errors.New(string(b))};return resp.Body,nil
 }
 
-func neturl(v string)string{var b bytes.Buffer;for i:=0;i<len(v);i++{ch:=v[i];if (ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='.'||ch=='-'{b.WriteByte(ch)}else{b.WriteString("%"+hex(ch>>4)+hex(ch&15))}};return b.String()}
+func neturl(v string)string{var b bytes.Buffer;for i:=0;i<len(v);i++{ch:=v[i];if (ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='.'||ch=='-'{b.WriteByte(ch)}else{b.WriteString("%"+hex(v[i]>>4)+hex(v[i]&15))}};return b.String()}
 func hex(v byte)byte{if v<10{return '0'+v};return 'A'+v-10}
