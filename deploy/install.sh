@@ -12,7 +12,7 @@ command -v go >/dev/null || { echo "Go 1.26+ is required."; exit 1; }
 command -v docker >/dev/null || { echo "Docker is required."; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker daemon is not reachable."; exit 1; }
 
-install -d -m 0755 "$PREFIX" "$BIN" "$ETC" "$DATA/data" "$DATA/backups" "$DATA/apps/sites" /run/alfa-panel
+install -d -m 0755 "$PREFIX" "$BIN" "$ETC" "$DATA/data" "$DATA/backups" "$DATA/apps/sites"
 getent group alfa-panel-agent >/dev/null || groupadd --system alfa-panel-agent
 id alfa-panel >/dev/null 2>&1 || useradd --system --home "$PREFIX" --shell /usr/sbin/nologin alfa-panel
 usermod -a -G alfa-panel-agent alfa-panel
@@ -32,6 +32,5 @@ install -m 0644 "$REPO_ROOT/deploy/alfa-panel-api.service" /etc/systemd/system/a
 chown -R root:root "$PREFIX"
 chown -R root:root "$DATA"
 chmod 0700 "$DATA/data" "$DATA/backups"
-chmod 0750 /run/alfa-panel
 systemctl daemon-reload
 echo "Install complete. Configure $ETC/api.env, then: systemctl enable --now alfa-panel-agent alfa-panel-api"
