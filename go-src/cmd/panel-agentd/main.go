@@ -106,7 +106,7 @@ func listSites(ctx context.Context)([]sitegenerator.SiteStatus,error){
 	type result struct{s sitegenerator.SiteStatus}
 	jobs:=make(chan string);results:=make(chan result)
 	var wg sync.WaitGroup
-	workers:=8;if len(entries)<workers{workers=len(entries)}
+	workers:=8;if len(entries)<workers{workers=len(entries)};if workers==0{return []sitegenerator.SiteStatus{},nil}
 	for i:=0;i<workers;i++{wg.Add(1);go func(){defer wg.Done();for domain:=range jobs{s,err:=sitegenerator.GetSiteStatus(ctx,domain);if err!=nil{s=sitegenerator.SiteStatus{Domain:domain,Status:"offline"}};results<-result{s:s}}}()}
 	go func(){for _,entry:=range entries{if entry.IsDir(){jobs<-entry.Name()}};close(jobs);wg.Wait();close(results)}()
 	out:=make([]sitegenerator.SiteStatus,0,len(entries));for r:=range results{out=append(out,r.s)}
