@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
 
@@ -185,15 +186,14 @@ func HandlePythonInstallDeps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if agent.Enabled() {
+		output, execErr := sitegenerator.InstallPythonDependencies(r.Context(), cleanDomain)
+		if execErr != nil { writeJSON(w,http.StatusInternalServerError,map[string]any{"status":"failed","domain":cleanDomain,"error":execErr.Error(),"output":output});return }
+		writeJSON(w,http.StatusOK,map[string]any{"status":"installed","domain":cleanDomain,"output":output});return
+	}
 	siteDir := filepath.Join(sitegenerator.BaseSitesDir, cleanDomain)
 	reqFile := filepath.Join(siteDir, "app", "requirements.txt")
-
-	if _, err := os.Stat(reqFile); os.IsNotExist(err) {
-		writeJSONError(w, http.StatusNotFound, "requirements.txt not found in app directory")
-		return
-	}
-
-	// Execute pip install inside container
+	if _, err := os.Stat(reqFile); os.IsNotExist(err) { writeJSONError(w,http.StatusNotFound,"requirements.txt not found in app directory");return }
 	output, execErr := sitegenerator.InstallPythonDependencies(r.Context(), cleanDomain)
 
 	if execErr != nil {
@@ -215,6 +215,13 @@ func HandlePythonInstallDeps(w http.ResponseWriter, r *http.Request) {
 
 // HandleFileTree lists directory entries under /opt/panel/apps/sites/<domain>/.
 func HandleFileTree(w http.ResponseWriter, r *http.Request) {
+	if agent.Enabled() {
+		b,err:=agent.Call(r.Context(),"file_tree",extractDomainParam(r.URL.Path),false)
+		if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return}
+		var data any;if err:=json.Unmarshal(b,&data);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid agent response");return}
+		writeJSON(w,http.StatusOK,data);return
+	}
+
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
 		return
@@ -276,6 +283,20 @@ func HandleFileTree(w http.ResponseWriter, r *http.Request) {
 
 // HandleFileContent reads or writes text file content with strict path traversal isolation.
 func HandleFileContent(w http.ResponseWriter, r *http.Request) {
+	if agent.Enabled() {
+		domain:=extractDomainParam(r.URL.Path)
+		if r.Method==http.MethodGet {
+			path:=r.URL.Query().Get("path");if path==""{writeJSONError(w,http.StatusBadRequest,"Missing 'path' query parameter");return}
+			b,err:=agent.CallJSON(r.Context(),"file_content",domain,false,map[string]string{"path":path});if err!=nil{writeJSONError(w,http.StatusForbidden,err.Error());return}
+			writeJSON(w,http.StatusOK,json.RawMessage(b));return
+		}
+		if r.Method==http.MethodPut {
+			var payload FileContentPayload;if err:=json.NewDecoder(http.MaxBytesReader(w,r,MaxTextEditSize)).Decode(&payload);err!=nil{writeJSONError(w,http.StatusBadRequest,"Invalid JSON payload");return}
+			b,err:=agent.CallJSON(r.Context(),"file_write",domain,false,payload);if err!=nil{writeJSONError(w,http.StatusForbidden,err.Error());return}
+			writeJSON(w,http.StatusOK,json.RawMessage(b));return
+		}
+	}
+
 	domain := extractDomainParam(r.URL.Path)
 	cleanDomain, err := sitegenerator.SanitizeDomain(domain)
 	if err != nil {
