@@ -13,6 +13,7 @@ type ServerConfig struct {
 
 // NewRouter constructs the complete REST API routing tree with security middleware.
 func NewRouter() http.Handler {
+	ConfigurePersistentAuthFromEnv()
 	mux := http.NewServeMux()
 
 	// Rate limiters
