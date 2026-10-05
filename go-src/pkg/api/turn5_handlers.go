@@ -75,6 +75,19 @@ func HandleDeployWAR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if agent.Enabled() {
+		r.Body = http.MaxBytesReader(w,r.Body,MaxWarUploadSize)
+		file,fileHeader,err:=r.FormFile("war_file");if err!=nil{writeJSONError(w,http.StatusBadRequest,fmt.Sprintf("Failed reading multipart 'war_file': %v",err));return};defer file.Close()
+		magic:=make([]byte,4);if _,err:=io.ReadFull(file,magic);err!=nil{writeJSONError(w,http.StatusBadRequest,"Invalid or empty WAR file stream");return}
+		if !(bytes.Equal(magic,[]byte{0x50,0x4B,0x03,0x04})||bytes.Equal(magic,[]byte{0x50,0x4B,0x05,0x06})||bytes.Equal(magic,[]byte{0x50,0x4B,0x07,0x08})){writeJSONError(w,http.StatusBadRequest,"Uploaded file is not a valid Java WAR archive");return}
+		if err:=os.MkdirAll("/opt/panel/data/uploads",0700);err!=nil{writeJSONError(w,http.StatusInternalServerError,"upload staging unavailable");return}
+		tmp,err:=os.CreateTemp("/opt/panel/data/uploads",".war-*");if err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to create upload staging file");return};tmpName:=tmp.Name();defer os.Remove(tmpName)
+		if _,err:=tmp.Write(magic);err!=nil{_ = tmp.Close();writeJSONError(w,http.StatusInternalServerError,"failed to stage WAR");return}
+		written,err:=io.Copy(tmp,file);if err!=nil{_ = tmp.Close();writeJSONError(w,http.StatusInternalServerError,"failed to stage WAR");return};if err:=tmp.Sync();err!=nil{_ = tmp.Close();writeJSONError(w,http.StatusInternalServerError,"failed to sync staged WAR");return};if err:=tmp.Close();err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to close staged WAR");return}
+		contextName:=r.FormValue("context_name");payload:=map[string]string{"staging":tmpName,"context_name":contextName}
+		b,err:=agent.CallJSON(r.Context(),"deploy_war",cleanDomain,false,payload);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return}
+		var result map[string]any;_ = json.Unmarshal(b,&result);result["filename"]=fileHeader.Filename;result["size_bytes"]=written+4;writeJSON(w,http.StatusOK,result);return
+	}
 	siteDir := filepath.Join(sitegenerator.BaseSitesDir, cleanDomain)
 	webappsDir := filepath.Join(siteDir, "data", "webapps")
 
