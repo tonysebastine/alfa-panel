@@ -99,7 +99,6 @@ func (s *Store) Prune(now time.Time, auditRetention time.Duration) error {
 			if !session.ExpiresAt.IsZero() && session.ExpiresAt.Before(now) { return sessions.Delete(k) }
 			return nil
 		});err!=nil{return err}
-		}
 		audit:=tx.Bucket(bucketAudit);cutoff:=now.Add(-auditRetention)
 		return audit.ForEach(func(k,v []byte) error{
 			if v==nil{return nil};var event AuditEvent;if err:=json.Unmarshal(v,&event);err!=nil{return err}
