@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/panel/panel-agent/pkg/agentproto"
+	"github.com/panel/panel-agent/pkg/backup"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
 
@@ -46,6 +47,17 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "delete":err=sitegenerator.DeleteSite(r.Context(),req.Domain,req.Purge)
 	case "status":var s sitegenerator.SiteStatus;s,err=sitegenerator.GetSiteStatus(r.Context(),req.Domain);data=s
 	case "install_deps":data,err=sitegenerator.InstallPythonDependencies(r.Context(),req.Domain)
+	case "backup_create":
+		a:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");data,err=a.Create(req.Domain)
+	case "backup_restore":
+		var p struct{Artifact string `json:"artifact"`}
+		if err=json.Unmarshal(req.Payload,&p);err==nil {
+			a:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups")
+			var pre *backup.Artifact
+			pre,err=a.Create(req.Domain)
+			if err==nil { _=sitegenerator.StopSite(r.Context(),req.Domain);err=a.Restore(req.Domain,p.Artifact);if err==nil{err=sitegenerator.StartSite(r.Context(),req.Domain)} }
+			if err==nil{data=map[string]any{"artifact":p.Artifact,"pre_restore_backup":pre.Path}}
+		}
 	case "create_site":
 		var cfg sitegenerator.SiteConfig
 		if err=json.Unmarshal(req.Payload,&cfg);err==nil {
