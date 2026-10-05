@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/panel/panel-agent/pkg/agentproto"
@@ -18,6 +19,10 @@ import (
 const DefaultSocket="/run/alfa-panel/agent.sock"
 
 type Client struct{ http *http.Client }
+
+var defaultOnce sync.Once
+var defaultClient *Client
+func shared() *Client { defaultOnce.Do(func(){ defaultClient=New(os.Getenv("PANEL_AGENT_SOCKET")) }); return defaultClient }
 
 func New(socket string)*Client{
 	if socket==""{socket=DefaultSocket}
@@ -34,7 +39,7 @@ func call(ctx context.Context,c *Client,req agentproto.Request)(agentproto.Respo
 }
 
 func Call(ctx context.Context,operation,domain string,purge bool)(json.RawMessage,error){
-	out,err:=call(ctx,New(os.Getenv("PANEL_AGENT_SOCKET")),agentproto.Request{Operation:operation,Domain:domain,Purge:purge})
+	out,err:=call(ctx,shared(),agentproto.Request{Operation:operation,Domain:domain,Purge:purge})
 	if err!=nil{return nil,err}
 	b,err:=json.Marshal(out.Data);if err!=nil{return nil,err};return b,nil
 }
@@ -46,7 +51,7 @@ func CallJSON(ctx context.Context,operation,domain string,purge bool,payload any
 }
 
 func Logs(ctx context.Context,domain string)(io.ReadCloser,error){
-	c:=New(os.Getenv("PANEL_AGENT_SOCKET"));r,err:=http.NewRequestWithContext(ctx,http.MethodGet,"http://agent/v1/logs?domain="+neturl(domain),nil);if err!=nil{return nil,err};resp,err:=c.http.Do(r);if err!=nil{return nil,err};if resp.StatusCode>=400{defer resp.Body.Close();b,_:=io.ReadAll(io.LimitReader(resp.Body,1<<16));return nil,errors.New(string(b))};return resp.Body,nil
+	c:=shared();r,err:=http.NewRequestWithContext(ctx,http.MethodGet,"http://agent/v1/logs?domain="+neturl(domain),nil);if err!=nil{return nil,err};resp,err:=c.http.Do(r);if err!=nil{return nil,err};if resp.StatusCode>=400{defer resp.Body.Close();b,_:=io.ReadAll(io.LimitReader(resp.Body,1<<16));return nil,errors.New(string(b))};return resp.Body,nil
 }
 
 func neturl(v string)string{var b bytes.Buffer;for i:=0;i<len(v);i++{ch:=v[i];if (ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||(ch>='0'&&ch<='9')||ch=='.'||ch=='-'{b.WriteByte(ch)}else{b.WriteString("%"+hex(v[i]>>4)+hex(v[i]&15))}};return b.String()}
