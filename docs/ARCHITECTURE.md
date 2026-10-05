@@ -34,3 +34,16 @@ Python dependencies are not installed on every container boot. Dependency instal
 ## Privileged boundary
 
 Operations capable of changing the host, Docker daemon, proxy configuration, certificates, firewall or tenant filesystem belong in the node-agent layer. These operations must use typed allowlisted actions rather than arbitrary shell strings.
+
+
+## Privileged-operation boundary
+
+The control plane is split into an unprivileged API and a root-owned agent:
+
+Browser -> API (unprivileged) -> Unix socket -> panel-agentd (root) -> Docker/filesystem/proxy/backups.
+
+The agent accepts typed operations only. Arbitrary shell execution is not a supported API or agent primitive.
+
+## Tenant networking
+
+Each site receives a deterministic, collision-resistant Docker bridge network derived from its validated domain. The reverse proxy is explicitly attached to that network; tenant containers are not placed on a shared tenant network and no application host ports are published.
