@@ -330,3 +330,17 @@ func extractDomainParam(path string) string {
 	}
 	return ""
 }
+
+// HandleDeleteSite performs a destructive typed site deletion. The caller must explicitly confirm the domain.
+func HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed"); return }
+	domain:=extractDomainParam(r.URL.Path)
+	cleanDomain,err:=sitegenerator.SanitizeDomain(domain); if err!=nil { writeJSONError(w,http.StatusBadRequest,err.Error()); return }
+	var req struct{ ConfirmDomain string `json:"confirm_domain"`; Purge bool `json:"purge"` }
+	if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil || !strings.EqualFold(strings.TrimSpace(req.ConfirmDomain),cleanDomain){
+		writeJSONError(w,http.StatusBadRequest,"confirm_domain must exactly match the site domain"); return
+	}
+	if err:=sitegenerator.DeleteSite(r.Context(),cleanDomain,req.Purge);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("site deletion failed: %v",err));return}
+	writeJSON(w,http.StatusOK,map[string]any{"status":"deleted","domain":cleanDomain,"purged":req.Purge})
+}
+
