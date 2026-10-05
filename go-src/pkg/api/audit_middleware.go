@@ -49,3 +49,8 @@ func AuditMiddleware(next http.Handler) http.Handler {
 		})
 	})
 }
+
+func recordAuthAudit(action, username, ip string, success bool) {
+	s:=persistentAuth(); if s==nil{return}
+	_ = s.PutAudit(store.AuditEvent{ID:newAuditID(),Timestamp:time.Now().UTC(),ActorID:username,Action:action,Resource:"auth",IPAddress:ip,Success:success})
+}
