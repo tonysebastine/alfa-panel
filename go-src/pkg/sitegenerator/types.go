@@ -80,7 +80,7 @@ type SiteConfig struct {
 	Domain          string            `json:"domain"`
 	Type            SiteType          `json:"type"`
 	BaseDir         string            `json:"base_dir"`          // default: /opt/panel/apps/sites
-	NetworkName     string            `json:"network_name"`      // default: panel-network
+	NetworkName     string            `json:"network_name"`      // deterministic per-site network
 	Port            int               `json:"port"`              // Internal container port
 	Resources       ResourceLimits    `json:"resources"`
 	Security        SecurityProfile   `json:"security"`
@@ -160,6 +160,12 @@ func DefaultResourceLimits() ResourceLimits {
 	}
 }
 
+// SiteNetworkName returns a deterministic Docker network name for one tenant.
+func SiteNetworkName(domain string) string {
+	slug := SanitizeDomainToSlug(domain)
+	return fmt.Sprintf("panel-site-%s", slug)
+}
+
 // NewSiteConfig creates a new SiteConfig initialized with production defaults.
 func NewSiteConfig(domain string, siteType SiteType) *SiteConfig {
 	port := 8080
@@ -171,7 +177,7 @@ func NewSiteConfig(domain string, siteType SiteType) *SiteConfig {
 		Domain:      domain,
 		Type:        siteType,
 		BaseDir:     "/opt/panel/apps/sites",
-		NetworkName: "panel-network",
+		NetworkName: SiteNetworkName(domain),
 		Port:        port,
 		Resources:   DefaultResourceLimits(),
 		Security:    DefaultSecurityProfile(),
