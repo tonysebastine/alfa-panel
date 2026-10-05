@@ -56,10 +56,9 @@ func ValidateConfig(cfg *SiteConfig) error {
 		return errors.New("base_dir contains forbidden path traversal sequence '..'")
 	}
 
-	// 3. Port bounds
-	if cfg.Port < 1024 || cfg.Port > 65535 {
-		return fmt.Errorf("internal port must be between 1024 and 65535, got %d", cfg.Port)
-	}
+	// 3. Port bounds and runtime compatibility.
+	if cfg.Port < 1024 || cfg.Port > 65535 { return fmt.Errorf("internal port must be between 1024 and 65535, got %d", cfg.Port) }
+	if cfg.Type == SiteTypeTomcat && cfg.Port != 8080 { return fmt.Errorf("Tomcat runtime currently supports internal port 8080 only, got %d", cfg.Port) }
 
 	// 4. Security Profile
 	if err := ValidateSecurityProfile(&cfg.Security); err != nil {
@@ -216,6 +215,9 @@ func ValidateTomcatConfig(t *TomcatConfig) error {
 
 // ValidatePythonConfig validates WSGI/ASGI runner and entrypoint against RCE.
 func ValidatePythonConfig(p *PythonConfig) error {
+	if p.Workers < 1 || p.Workers > 32 { return fmt.Errorf("python workers must be between 1 and 32, got %d", p.Workers) }
+	if p.Threads < 1 || p.Threads > 64 { return fmt.Errorf("python threads must be between 1 and 64, got %d", p.Threads) }
+
 	if p.Image == "" {
 		return errors.New("python base image cannot be empty")
 	}
