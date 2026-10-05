@@ -215,6 +215,26 @@ func (o *DockerOrchestrator) StopSite(ctx context.Context, domain string) error 
 	return nil
 }
 
+// DeleteSite performs a typed destructive lifecycle operation. It never accepts shell commands.
+func (o *DockerOrchestrator) DeleteSite(ctx context.Context, domain string, purge bool) error {
+	cleanDomain, err := SanitizeDomain(domain); if err != nil { return err }
+	siteDir := filepath.Join(BaseSitesDir, cleanDomain)
+	composePath := filepath.Join(siteDir, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err != nil { return fmt.Errorf("compose manifest not found at %s: %w", composePath, err) }
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composePath, "--env-file", filepath.Join(siteDir, ".env"), "down", "--volumes", "--remove-orphans")
+	cmd.Dir=siteDir
+	if out,err:=cmd.CombinedOutput(); err!=nil{return fmt.Errorf("docker compose down failed: %s (%w)",strings.TrimSpace(string(out)),err)}
+	networkName:=SiteNetworkName(cleanDomain)
+	_ = o.cli.NetworkDisconnect(ctx,networkName,proxyContainerName(),true)
+	if err:=o.cli.NetworkRemove(ctx,networkName);err!=nil && !strings.Contains(strings.ToLower(err.Error()),"not found"){return fmt.Errorf("failed removing site network: %w",err)}
+	proxy:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli)
+	if _,err:=proxy.RemoveVhost(ctx,cleanDomain);err!=nil{return fmt.Errorf("failed removing proxy configuration: %w",err)}
+	if purge {
+		if err:=os.RemoveAll(siteDir);err!=nil{return fmt.Errorf("failed purging site directory: %w",err)}
+	}
+	return nil
+}
+
 // RestartSite triggers a graceful restart of the site stack.
 func (o *DockerOrchestrator) RestartSite(ctx context.Context, domain string) error {
 	cleanDomain, err := SanitizeDomain(domain)
@@ -410,6 +430,11 @@ func StopSite(ctx context.Context, domain string) error {
 		return errors.New("docker orchestrator is not initialized")
 	}
 	return DefaultDockerOrchestrator.StopSite(ctx, domain)
+}
+
+func DeleteSite(ctx context.Context, domain string, purge bool) error {
+	if DefaultDockerOrchestrator == nil { return errors.New("docker orchestrator is not initialized") }
+	return DefaultDockerOrchestrator.DeleteSite(ctx, domain, purge)
 }
 
 func RestartSite(ctx context.Context, domain string) error {
