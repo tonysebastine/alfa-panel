@@ -21,3 +21,16 @@ ALFA Panel is designed to support security programs; it is not itself a complian
 The operator remains responsible for lawful processing, privacy notices, data residency and retention, customer contracts/DPAs, physical infrastructure, patching, backup encryption and key management, access reviews, incident notification and independent audit evidence.
 
 Do not advertise ALFA Panel as SOC 2, ISO 27001, GDPR-certified, or otherwise certified solely because these mappings exist.
+
+
+## Evidence implemented in the production-hardening branch
+
+Access control: persistent users, role permissions, MFA-backed login, refresh-session rotation, and authenticated audit events.
+
+Tenant isolation: per-site Docker networks, no public workload ports, read-only container roots, dropped Linux capabilities, no-new-privileges, resource limits, and typed agent operations.
+
+Data protection: encrypted TOTP secrets at rest, restrictive file permissions, secret redaction, controlled backups, and pre-restore backups.
+
+Change control: atomic site/file/WAR activation paths, CI tests/vet/lint/build/secret scanning, and documented upgrade/rollback requirements.
+
+These controls are implementation evidence and design readiness; they do not constitute ISO 27001, SOC 2, GDPR, or DPDP certification by themselves.
