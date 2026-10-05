@@ -20,7 +20,9 @@ import (
 )
 
 // DefaultDockerSocket defines the standard Linux host Docker daemon Unix socket.
-const DefaultDockerSocket = "/var/run/docker.sock"\n\nconst DefaultProxyContainer = "1panel-openresty"
+const DefaultDockerSocket = "/var/run/docker.sock"
+
+const DefaultProxyContainer = "1panel-openresty"
 
 // DeploymentStage tracks the current phase of bringing up a site.
 type DeploymentStage string
