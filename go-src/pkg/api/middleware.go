@@ -161,3 +161,15 @@ func extractIP(r *http.Request) string {
 	if real:=net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")));real!=nil{return real.String()}
 	return host
 }
+
+func CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+		origin:=strings.TrimSpace(r.Header.Get("Origin"))
+		allowed:=false
+		if origin!="" { for _,v:=range strings.Split(os.Getenv("PANEL_CORS_ORIGINS"),","){if strings.TrimSpace(v)==origin{allowed=true;break}} }
+		if allowed { w.Header().Set("Access-Control-Allow-Origin",origin);w.Header().Set("Vary","Origin");w.Header().Set("Access-Control-Allow-Headers","Authorization, Content-Type");w.Header().Set("Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS") }
+		if r.Method==http.MethodOptions { if allowed {w.WriteHeader(http.StatusNoContent)} else {w.WriteHeader(http.StatusForbidden)};return }
+		next.ServeHTTP(w,r)
+	})
+}
+
