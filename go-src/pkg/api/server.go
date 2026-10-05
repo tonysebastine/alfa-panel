@@ -54,6 +54,10 @@ func NewRouter() http.Handler {
 			HandleSiteAction("restart")(w, r)
 			return
 		}
+		if strings.HasSuffix(path, "/delete") {
+			HandleDeleteSite(w, r)
+			return
+		}
 		if strings.HasSuffix(path, "/logs") {
 			HandleSiteLogs(w, r)
 			return
