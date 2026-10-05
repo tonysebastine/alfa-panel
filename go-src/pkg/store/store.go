@@ -89,3 +89,21 @@ func (s *Store) ListAudit(limit int)([]AuditEvent,error){
 		return nil
 	});return out,err
 }
+
+func (s *Store) Prune(now time.Time, auditRetention time.Duration) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		sessions:=tx.Bucket(bucketSessions)
+		if err:=sessions.ForEach(func(k,v []byte) error{
+			var session Session
+			if v==nil{return nil};if err:=json.Unmarshal(v,&session);err!=nil{return err}
+			if !session.ExpiresAt.IsZero() && session.ExpiresAt.Before(now) { return sessions.Delete(k) }
+			return nil
+		});err!=nil{return err}
+		}
+		audit:=tx.Bucket(bucketAudit);cutoff:=now.Add(-auditRetention)
+		return audit.ForEach(func(k,v []byte) error{
+			if v==nil{return nil};var event AuditEvent;if err:=json.Unmarshal(v,&event);err!=nil{return err}
+			if !event.Timestamp.IsZero()&&event.Timestamp.Before(cutoff){return audit.Delete(k)};return nil
+		})
+	})
+}
