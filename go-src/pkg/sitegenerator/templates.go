@@ -191,6 +191,7 @@ services:
       - WORKERS=${WORKERS}
       - THREADS=${THREADS}
       - APP_MODULE=${APP_MODULE}
+      - PYTHONPATH=/app/.panel-deps
       - TZ=UTC
     
     volumes:
@@ -212,9 +213,6 @@ services:
     {{else}}
     command: >
       sh -c "
-        if [ -f requirements.txt ]; then
-          pip install --no-cache-dir --user -r requirements.txt;
-        fi &&
         exec uvicorn ${APP_MODULE} \
           --host 0.0.0.0 \
           --port ${APP_PORT} \
