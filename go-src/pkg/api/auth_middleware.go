@@ -19,11 +19,12 @@ func SecureLoginMiddleware(next http.Handler) http.Handler {
         r.Body = io.NopCloser(bytes.NewReader(body))
         var req LoginRequest
         if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Username) == "" || req.Password == "" || req.TOTPCode == "" {
-            writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
+            recordAuthAudit("LOGIN_FAILED", req.Username, extractIP(r), false); writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
         }
         if err := AuthenticateAdmin(req.Username, req.Password, req.TOTPCode); err != nil {
-            writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
+            recordAuthAudit("LOGIN_FAILED", req.Username, extractIP(r), false); writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
         }
+        recordAuthAudit("LOGIN", req.Username, extractIP(r), true)
         next.ServeHTTP(w, r)
     })
 }
