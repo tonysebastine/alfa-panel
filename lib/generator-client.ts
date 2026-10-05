@@ -53,7 +53,7 @@ export const defaultSiteConfig: SiteConfigState = {
   domain: 'app.production.example.com',
   type: 'tomcat',
   baseDir: '/opt/panel/apps/sites',
-  networkName: 'panel-network',
+  networkName: 'panel-site-<domain-hash>',
   port: 8080,
   cpuLimit: '1.5',
   memoryLimit: '2048M',
@@ -63,8 +63,8 @@ export const defaultSiteConfig: SiteConfigState = {
   gid: 1001,
   noNewPrivileges: true,
   dropCaps: ['ALL'],
-  addCaps: ['NET_BIND_SERVICE', 'CHOWN', 'SETUID', 'SETGID'],
-  readOnlyRootfs: false,
+  addCaps: [],
+  readOnlyRootfs: true,
 
   tomcatVersion: '10.1',
   javaVersion: '21',
@@ -84,7 +84,7 @@ export const defaultSiteConfig: SiteConfigState = {
   appModule: 'main:app',
   workers: 4,
   threads: 2,
-  autoInstallReqs: true,
+  autoInstallReqs: false,
   virtualenvPath: '/opt/venv',
 
   enableSSL: true,
@@ -253,7 +253,7 @@ ${capAdds}
       start_period: 40s
     
     networks:
-      - \${NETWORK_NAME}
+      - site-network
 
 networks:
   panel-network:
@@ -265,9 +265,7 @@ networks:
       ? `command: >
       sh -c "
         if [ -f requirements.txt ]; then
-          pip install --no-cache-dir --user -r requirements.txt;
-        fi &&
-        exec gunicorn \${APP_MODULE} \\
+          exec gunicorn \${APP_MODULE} \\
           --bind 0.0.0.0:\${APP_PORT} \\
           --workers \${WORKERS} \\
           --threads \${THREADS} \\
@@ -278,14 +276,12 @@ networks:
       : `command: >
       sh -c "
         if [ -f requirements.txt ]; then
-          pip install --no-cache-dir --user -r requirements.txt;
-        fi &&
-        exec uvicorn \${APP_MODULE} \\
+          exec uvicorn \${APP_MODULE} \\
           --host 0.0.0.0 \\
           --port \${APP_PORT} \\
           --workers \${WORKERS} \\
           --proxy-headers \\
-          --forwarded-allow-ips='*'
+          --forwarded-allow-ips=172.16.0.0/12
       "`;
 
     return `# ==============================================================================
