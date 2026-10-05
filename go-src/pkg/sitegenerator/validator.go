@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"math"
 )
 
 var (
@@ -90,7 +91,14 @@ func ValidateConfig(cfg *SiteConfig) error {
 		return fmt.Errorf("unsupported site type: %s (must be 'tomcat' or 'python')", cfg.Type)
 	}
 
-	// 7. Environment variable validation
+	// 7. Cross-field resource validation.
+	if cfg.Type == SiteTypeTomcat {
+		mem,err:=parseMemoryBytes(cfg.Resources.MemoryLimit);if err!=nil{return fmt.Errorf("invalid memory limit: %w",err)}
+		heap,err:=parseMemoryBytes(cfg.Tomcat.MaxHeap);if err!=nil{return fmt.Errorf("invalid Tomcat max heap: %w",err)}
+		if heap+256*1024*1024>mem{return fmt.Errorf("Tomcat max heap %s plus runtime overhead exceeds memory limit %s",cfg.Tomcat.MaxHeap,cfg.Resources.MemoryLimit)}
+	}
+
+// 7. Environment variable validation
 	for k := range cfg.EnvVars {
 		if strings.ContainsAny(k, " \t\n\r=:") {
 			return fmt.Errorf("invalid environment variable key '%s'", k)
@@ -241,4 +249,13 @@ func ValidatePythonConfig(p *PythonConfig) error {
 	}
 
 	return nil
+}
+
+func parseMemoryBytes(value string)(int64,error){
+	v:=strings.TrimSpace(strings.ToLower(value));if v==""{return 0,errors.New("memory value is empty")}
+	mult:=int64(1);num:=v
+	switch v[len(v)-1]{case 'k':mult=1024;num=v[:len(v)-1];case 'm':mult=1024*1024;num=v[:len(v)-1];case 'g':mult=1024*1024*1024;num=v[:len(v)-1];default:}
+	f,err:=strconv.ParseFloat(num,64);if err!=nil||f<=0{return 0,fmt.Errorf("invalid memory value %q",value)}
+	if f>float64(math.MaxInt64)/float64(mult){return 0,errors.New("memory value is too large")}
+	return int64(f*float64(mult)),nil
 }
