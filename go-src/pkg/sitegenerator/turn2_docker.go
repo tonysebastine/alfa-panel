@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -419,6 +420,7 @@ func EnsureNetwork(ctx context.Context, networkName string) error {
 }
 
 func StartSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"start",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
@@ -426,6 +428,7 @@ func StartSite(ctx context.Context, domain string) error {
 }
 
 func StopSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"stop",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
@@ -433,11 +436,13 @@ func StopSite(ctx context.Context, domain string) error {
 }
 
 func DeleteSite(ctx context.Context, domain string, purge bool) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"delete",domain,purge); return err }
 	if DefaultDockerOrchestrator == nil { return errors.New("docker orchestrator is not initialized") }
 	return DefaultDockerOrchestrator.DeleteSite(ctx, domain, purge)
 }
 
 func RestartSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"restart",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
@@ -445,6 +450,7 @@ func RestartSite(ctx context.Context, domain string) error {
 }
 
 func GetSiteStatus(ctx context.Context, domain string) (SiteStatus, error) {
+	if agent.Enabled() { b,err:=agent.Call(ctx,"status",domain,false); var s SiteStatus; if err==nil { err=json.Unmarshal(b,&s) }; return s,err }
 	if DefaultDockerOrchestrator == nil {
 		return SiteStatus{}, errors.New("docker orchestrator is not initialized")
 	}
@@ -452,6 +458,7 @@ func GetSiteStatus(ctx context.Context, domain string) (SiteStatus, error) {
 }
 
 func StreamLogs(ctx context.Context, domain string) (io.ReadCloser, error) {
+	if agent.Enabled() { return agent.Logs(ctx,domain) }
 	if DefaultDockerOrchestrator == nil {
 		return nil, errors.New("docker orchestrator is not initialized")
 	}
@@ -459,6 +466,7 @@ func StreamLogs(ctx context.Context, domain string) (io.ReadCloser, error) {
 }
 
 func InstallPythonDependencies(ctx context.Context, domain string) (string,error) {
+	if agent.Enabled() { b,err:=agent.Call(ctx,"install_deps",domain,false); return string(b),err }
 	if DefaultDockerOrchestrator == nil { return "", errors.New("docker orchestrator is not initialized") }
 	return DefaultDockerOrchestrator.InstallPythonDependencies(ctx, domain)
 }
