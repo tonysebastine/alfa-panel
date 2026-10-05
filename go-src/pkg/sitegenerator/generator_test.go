@@ -71,7 +71,7 @@ func TestGenerateTomcatSite(t *testing.T) {
 		"user: \"${UID}:${GID}\"",
 		"read_only: true",
 		"cap_add: []",
-		"panel-network",
+		"site-network",
 		"expose:\n      - \"${APP_PORT}\"",
 	}
 
