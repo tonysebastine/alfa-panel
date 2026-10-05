@@ -370,6 +370,20 @@ func (o *DockerOrchestrator) StreamLogs(ctx context.Context, domain string) (io.
 	return pr, nil
 }
 
+// InstallPythonDependencies performs one typed, non-root dependency installation.
+// The command is fixed by the agent; callers cannot supply arbitrary arguments.
+func (o *DockerOrchestrator) InstallPythonDependencies(ctx context.Context, domain string) (string,error) {
+	cleanDomain, err := SanitizeDomain(domain); if err != nil { return "",err }
+	targetID, _, err := o.findSiteContainer(ctx, cleanDomain, true); if err != nil { return "",err }
+	execCfg := container.ExecOptions{AttachStdout:true,AttachStderr:true,Cmd:[]string{"python","-m","pip","install","--no-cache-dir","--target","/app/.panel-deps","-r","/app/requirements.txt"}}
+	created, err := o.cli.ContainerExecCreate(ctx,targetID,execCfg); if err != nil { return "",fmt.Errorf("failed to create dependency job: %w",err) }
+	attach, err := o.cli.ContainerExecAttach(ctx,created.ID,container.ExecStartOptions{}); if err != nil { return "",fmt.Errorf("failed to attach dependency job: %w",err) }; defer attach.Close()
+	var stdout,stderr bytes.Buffer; if _,err:=stdcopy.StdCopy(&stdout,&stderr,attach.Reader); err!=nil{return "",err}
+	status,err:=o.cli.ContainerExecInspect(ctx,created.ID); if err!=nil{return "",err}
+	out:=strings.TrimSpace(stdout.String()+"\n"+stderr.String()); if status.ExitCode!=0{return out,fmt.Errorf("dependency installation failed with exit code %d",status.ExitCode)}
+	return out,nil
+}
+
 // ExecInApp is intentionally disabled. Use typed deployment operations instead.
 func (o *DockerOrchestrator) ExecInApp(ctx context.Context, domain string, cmd []string) (string, error) {
 	return "", errors.New("arbitrary container execution is disabled")
@@ -417,6 +431,11 @@ func StreamLogs(ctx context.Context, domain string) (io.ReadCloser, error) {
 		return nil, errors.New("docker orchestrator is not initialized")
 	}
 	return DefaultDockerOrchestrator.StreamLogs(ctx, domain)
+}
+
+func InstallPythonDependencies(ctx context.Context, domain string) (string,error) {
+	if DefaultDockerOrchestrator == nil { return "", errors.New("docker orchestrator is not initialized") }
+	return DefaultDockerOrchestrator.InstallPythonDependencies(ctx, domain)
 }
 
 func ExecInApp(ctx context.Context, domain string, cmd []string) (string, error) {
