@@ -194,8 +194,7 @@ func HandlePythonInstallDeps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Execute pip install inside container
-	cmd := []string{"pip", "install", "--no-cache-dir", "--user", "-r", "requirements.txt"}
-	output, execErr := sitegenerator.ExecInApp(r.Context(), cleanDomain, cmd)
+	output, execErr := sitegenerator.InstallPythonDependencies(r.Context(), cleanDomain)
 
 	if execErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
