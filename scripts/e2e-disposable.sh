@@ -24,7 +24,9 @@ AGENT_PID=$!
 for _ in {1..50}; do [[ -S "$SOCK" ]] && break; sleep .1; done
 [[ -S "$SOCK" ]]
 
-payload='{"domain":"e2e.example.test","type":"python","base_dir":"'"$SITES"'","network_name":"panel-site-e2e","port":8000,"resources":{"cpu_limit":"1","memory_limit":"512M","memory_reservation":"128M","pids_limit":100},"security":{"no_new_privileges":true,"drop_caps":["ALL"],"add_caps":[],"read_only_rootfs":true,"uid":1001,"gid":1001},"python":{"python_version":"3.12","image":"alfa-e2e-python:local","runner":"uvicorn","app_module":"main:app","workers":1,"threads":1,"auto_install_reqs":false,"virtualenv_path":"/opt/venv"},"proxy":{"enable_ssl":false,"enable_websocket":true,"max_body_size_mb":100,"upstream_port":8000,"hsts":false},"env_vars":{}}'
+NETWORK_SUFFIX="$(printf '%s' 'e2e.example.test' | sha256sum | cut -c1-12)"
+NETWORK_NAME="panel-site-e2e_example_test-$NETWORK_SUFFIX"
+payload='{"domain":"e2e.example.test","type":"python","base_dir":"'"$SITES"'","network_name":"'"$NETWORK_NAME"'","type":"python","port":8000,"resources":{"cpu_limit":"1","memory_limit":"512M","memory_reservation":"128M","pids_limit":100},"security":{"no_new_privileges":true,"drop_caps":["ALL"],"add_caps":[],"read_only_rootfs":true,"uid":1001,"gid":1001},"python":{"python_version":"3.12","image":"alfa-e2e-python:local","runner":"uvicorn","app_module":"main:app","workers":1,"threads":1,"auto_install_reqs":false,"virtualenv_path":"/opt/venv"},"proxy":{"enable_ssl":false,"enable_websocket":true,"max_body_size_mb":100,"upstream_port":8000,"hsts":false},"env_vars":{}}'
 curl --fail --silent --show-error --unix-socket "$SOCK" -H 'Content-Type: application/json' -d "{\"operation\":\"create_site\",\"domain\":\"e2e.example.test\",\"payload\":$payload}" http://agent/v1/operate >/dev/null
 mkdir -p "$SITES/e2e.example.test/app"
 cat >"$SITES/e2e.example.test/app/main.py" <<'EOF'
