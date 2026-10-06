@@ -73,12 +73,9 @@ func (fm *FirewallManager) ListRules(ctx context.Context) ([]FirewallRule, error
 	if err != nil {
 		return nil, fmt.Errorf("failed listing nftables rules: %s (%w)", string(out), err)
 	}
-	// Return representative parsed rules
-	return []FirewallRule{
-		{ID: 1, Port: 22, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "SSH Management"},
-		{ID: 2, Port: 80, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTP Ingress (1Panel)"},
-		{ID: 3, Port: 443, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTPS Ingress (1Panel)"},
-	}, nil
+out,err:=exec.CommandContext(ctx,"nft","-a","list","chain","inet","filter","input").CombinedOutput()
+	if err!=nil{return nil,fmt.Errorf("failed listing nftables input chain: %s (%w)",string(out),err)}
+	return parseNFTOutput(string(out)),nil
 }
 
 // AllowPort opens a port on the host firewall: ufw allow <port>/<proto> comment '<comment>'
@@ -208,4 +205,11 @@ func (fm *FirewallManager) ensureNFTInputChain(ctx context.Context) error {
 }
 func (fm *FirewallManager) nftRule(ctx context.Context,proto string,port int,action string) error {
  out,err:=exec.CommandContext(ctx,"nft","add","rule","inet","filter","input",proto,"dport",strconv.Itoa(port),action).CombinedOutput();if err!=nil{return fmt.Errorf("nft rule failed: %s (%w)",out,err)};return nil
+}
+
+func parseNFTOutput(output string)[]FirewallRule{
+ var rules []FirewallRule;re:=regexp.MustCompile(`(?i)(tcp|udp) dport ([0-9]+).*?(accept|drop)(?:.*?comment "([^"]*)")?`)
+ scanner:=bufio.NewScanner(strings.NewReader(output));id:=1
+ for scanner.Scan(){m:=re.FindStringSubmatch(scanner.Text());if len(m)==0{continue};port,_:=strconv.Atoi(m[2]);action:=ActionDeny;if strings.EqualFold(m[3],"accept"){action=ActionAllow};rules=append(rules,FirewallRule{ID:id,Port:port,Protocol:strings.ToLower(m[1]),Action:action,FromIP:"Anywhere",Comment:m[4]});id++}
+ return rules
 }
