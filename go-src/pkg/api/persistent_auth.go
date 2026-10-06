@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +50,7 @@ func ConfigurePersistentAuth(s *store.Store) {
 	persistentAuthMu.Lock()
 	defer persistentAuthMu.Unlock()
 	persistentAuthDB = s
-	persistentPruneOnce.Do(func(){go func(){ticker:=time.NewTicker(6*time.Hour);defer ticker.Stop();for range ticker.C{_ = s.Prune(time.Now().UTC(),90*24*time.Hour)}}()})
+	persistentPruneOnce.Do(func(){days:=90;if v,e:=strconv.Atoi(strings.TrimSpace(os.Getenv("PANEL_AUDIT_RETENTION_DAYS")));e==nil&&v>=7&&v<=3650{days=v};go func(){ticker:=time.NewTicker(6*time.Hour);defer ticker.Stop();for range ticker.C{_ = s.Prune(time.Now().UTC(),time.Duration(days)*24*time.Hour)}}()})
 }
 
 func persistentAuth() *store.Store {
