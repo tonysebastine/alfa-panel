@@ -34,3 +34,14 @@ Data protection: encrypted TOTP secrets at rest, restrictive file permissions, s
 Change control: atomic site/file/WAR activation paths, CI tests/vet/lint/build/secret scanning, and documented upgrade/rollback requirements.
 
 These controls are implementation evidence and design readiness; they do not constitute ISO 27001, SOC 2, GDPR, or DPDP certification by themselves.
+
+
+## Additional evidence controls
+
+- Authentication evidence: persistent role-bearing JWT subjects, MFA verification, refresh rotation, credential-change audit events.
+- Infrastructure evidence: per-tenant Docker networks, typed firewall management, root-owned privileged agent, hardened systemd units.
+- Availability evidence: atomic deployment/restore paths, backup preflight, retention scheduler, disposable Docker E2E coverage.
+- Data protection evidence: encrypted MFA secrets and optional encrypted off-host backup artifacts.
+- Change assurance: CI unit/vet/lint/build, secret scanning, dependency scanning, filesystem misconfiguration scanning, SBOM generation, and systemd validation.
+
+Certification, legal compliance, retention periods, and privacy notices still require organization-specific review and cannot be inferred from implementation alone.
