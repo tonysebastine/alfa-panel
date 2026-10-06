@@ -236,8 +236,7 @@ func (o *DockerOrchestrator) DeleteSite(ctx context.Context, domain string, purg
 	networkName:=SiteNetworkName(cleanDomain)
 	_ = o.cli.NetworkDisconnect(ctx,networkName,proxyContainerName(),true)
 	if err:=o.cli.NetworkRemove(ctx,networkName);err!=nil && !strings.Contains(strings.ToLower(err.Error()),"not found"){return fmt.Errorf("failed removing site network: %w",err)}
-	proxy:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli)
-	if _,err:=proxy.RemoveVhost(ctx,cleanDomain);err!=nil{return fmt.Errorf("failed removing proxy configuration: %w",err)}
+	if os.Getenv("PANEL_SKIP_PROXY_ACTIVATION")!="true" { proxy:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli);if _,err:=proxy.RemoveVhost(ctx,cleanDomain);err!=nil{return fmt.Errorf("failed removing proxy configuration: %w",err)} }
 	if purge {
 		if err:=os.RemoveAll(siteDir);err!=nil{return fmt.Errorf("failed purging site directory: %w",err)}
 	}
