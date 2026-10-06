@@ -6,9 +6,9 @@ import {streamLogs} from '@/lib/api-client';
 
 export const SiteLogViewer:React.FC<{domain:string;initialType?:'tomcat'|'python'}>=({domain})=>{
  const [logs,setLogs]=useState<string[]>([]),[paused,setPaused]=useState(false),[query,setQuery]=useState(''),[connected,setConnected]=useState(false),[error,setError]=useState<string|null>(null);
- const abort=useRef<AbortController|null>(null);
+ const abort=useRef<AbortController|null>(null);const pausedRef=useRef(false);useEffect(()=>{pausedRef.current=paused},[paused]);
  useEffect(()=>{abort.current?.abort();const c=new AbortController();abort.current=c;setLogs([]);setError(null);setConnected(false);
-   streamLogs(domain,line=>{if(!paused)setLogs(v=>[...v.slice(-999),line])},c.signal).then(()=>setConnected(false)).catch(e=>{if(e?.name!=='AbortError'){setError(e?.message||'log stream disconnected')}}).finally(()=>setConnected(false));
+   streamLogs(domain,line=>{if(!pausedRef.current)setLogs(v=>[...v.slice(-999),line])},c.signal).then(()=>setConnected(false)).catch(e=>{if(e?.name!=='AbortError'){setError(e?.message||'log stream disconnected')}}).finally(()=>setConnected(false));
    setConnected(true);return()=>c.abort();
  },[domain]);
  const filtered=useMemo(()=>logs.filter(x=>!query||x.toLowerCase().includes(query.toLowerCase())),[logs,query]);
