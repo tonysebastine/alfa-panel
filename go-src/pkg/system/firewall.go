@@ -202,9 +202,9 @@ func (fm *FirewallManager) Deny(req FirewallRequest) error { return fm.DenyPort(
 
 func (fm *FirewallManager) ensureNFTInputChain(ctx context.Context) error {
  if _,err:=exec.CommandContext(ctx,"nft","list","chain","inet","filter","input").CombinedOutput();err==nil{return nil}
- cmd:=exec.CommandContext(ctx,"nft","-f","-");in,err:=cmd.StdinPipe();if err!=nil{return err};go func(){defer in.Close();_,_=io.WriteString(in,"add table inet filter
-add chain inet filter input { type filter hook input priority 0; policy drop; }
-")}();if out,err:=cmd.CombinedOutput();err!=nil{return fmt.Errorf("failed initializing nftables input chain: %s (%w)",out,err)};return nil
+ if _,err:=exec.CommandContext(ctx,"nft","list","table","inet","filter").CombinedOutput();err!=nil{if out,e:=exec.CommandContext(ctx,"nft","add","table","inet","filter").CombinedOutput();e!=nil{return fmt.Errorf("failed creating nftables filter table: %s (%w)",out,e)}}
+ if out,err:=exec.CommandContext(ctx,"nft","add","chain","inet","filter","input","{","type","filter","hook","input","priority","0;","policy","drop;","}").CombinedOutput();err!=nil{return fmt.Errorf("failed creating nftables input chain: %s (%w)",out,err)}
+ return nil
 }
 func (fm *FirewallManager) nftRule(ctx context.Context,proto string,port int,action string) error {
  out,err:=exec.CommandContext(ctx,"nft","add","rule","inet","filter","input",proto,"dport",strconv.Itoa(port),action).CombinedOutput();if err!=nil{return fmt.Errorf("nft rule failed: %s (%w)",out,err)};return nil
