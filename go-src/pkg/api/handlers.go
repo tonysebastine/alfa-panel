@@ -50,43 +50,11 @@ type ExecRequest struct {
 }
 
 // HandleLogin authenticates users and validates RFC 6238 TOTP.
-func HandleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "Invalid JSON request body")
-		return
-	}
-
-	// Validate credentials (in production, verify against host user / db hash)
-	if req.Username == "" || req.Password == "" {
-		writeJSONError(w, http.StatusUnauthorized, "Username and password required")
-		return
-	}
-
-	// Example TOTP verification: default demo secret if TOTP code is supplied
-	if req.TOTPCode != "" {
-		demoSecret := "JBSWY3DPEHPK3PXP" // Standard base32 secret
-		if !VerifyTOTP(demoSecret, req.TOTPCode, 30, 1) && req.TOTPCode != "123456" {
-			writeJSONError(w, http.StatusUnauthorized, "Invalid 2FA TOTP code")
-			return
-		}
-	}
-
-	// Generate access and refresh token pair
-	userID, role := req.Username, "admin"
-	if v,ok:=r.Context().Value(LoginIdentityKey).([]string);ok&&len(v)==2{userID,role=v[0],v[1]}
-	tokenPair, err := GenerateTokenPair(userID, role)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "Token generation failed")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, tokenPair)
+func HandleLogin(w http.ResponseWriter,r *http.Request){
+ if r.Method!=http.MethodPost{http.Error(w,`{"error":"method_not_allowed"}`,http.StatusMethodNotAllowed);return}
+ identity,ok:=r.Context().Value(LoginIdentityKey).([]string);if !ok||len(identity)!=2{writeJSONError(w,http.StatusUnauthorized,"authenticated login context required");return}
+ pair,err:=GenerateTokenPair(identity[0],identity[1]);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"token generation failed");return}
+ writeJSON(w,http.StatusOK,pair)
 }
 
 // HandleListSites scans /opt/panel/apps/sites/ and inspects live cgroup stats.
