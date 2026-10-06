@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -108,8 +109,7 @@ func (fm *FirewallManager) AllowPort(ctx context.Context, port int, proto string
 		cmd = exec.CommandContext(ctx, "ufw", "allow", ruleSpec, "comment", cleanComment)
 	} else {
 		// nftables rule addition
-		cmd = exec.CommandContext(ctx, "nft", "add", "rule", "inet", "filter", "input",
-			proto, "dport", strconv.Itoa(port), "accept")
+		if err:=fm.ensureNFTInputChain(ctx);err!=nil{return err};if proto=="any"{for _,p:=range []string{"tcp","udp"}{if err:=fm.nftRule(ctx,p,port,"accept");err!=nil{return err}};return nil};return fm.nftRule(ctx,proto,port,"accept")
 	}
 
 	out, err := cmd.CombinedOutput()
@@ -139,8 +139,7 @@ func (fm *FirewallManager) DenyPort(ctx context.Context, port int, proto string)
 		}
 		cmd = exec.CommandContext(ctx, "ufw", "deny", ruleSpec)
 	} else {
-		cmd = exec.CommandContext(ctx, "nft", "add", "rule", "inet", "filter", "input",
-			proto, "dport", strconv.Itoa(port), "drop")
+		if err:=fm.ensureNFTInputChain(ctx);err!=nil{return err};if proto=="any"{for _,p:=range []string{"tcp","udp"}{if err:=fm.nftRule(ctx,p,port,"drop");err!=nil{return err}};return nil};return fm.nftRule(ctx,proto,port,"drop")
 	}
 
 	out, err := cmd.CombinedOutput()
@@ -200,3 +199,13 @@ func parseUFWNumberedOutput(output string) []FirewallRule {
 type FirewallRequest struct { Port int `json:"port"`; Protocol string `json:"protocol"`; Comment string `json:"comment"` }
 func (fm *FirewallManager) Allow(req FirewallRequest) error { return fm.AllowPort(context.Background(),req.Port,req.Protocol,req.Comment) }
 func (fm *FirewallManager) Deny(req FirewallRequest) error { return fm.DenyPort(context.Background(),req.Port,req.Protocol) }
+
+func (fm *FirewallManager) ensureNFTInputChain(ctx context.Context) error {
+ if _,err:=exec.CommandContext(ctx,"nft","list","chain","inet","filter","input").CombinedOutput();err==nil{return nil}
+ cmd:=exec.CommandContext(ctx,"nft","-f","-");in,err:=cmd.StdinPipe();if err!=nil{return err};go func(){defer in.Close();_,_=io.WriteString(in,"add table inet filter
+add chain inet filter input { type filter hook input priority 0; policy drop; }
+")}();if out,err:=cmd.CombinedOutput();err!=nil{return fmt.Errorf("failed initializing nftables input chain: %s (%w)",out,err)};return nil
+}
+func (fm *FirewallManager) nftRule(ctx context.Context,proto string,port int,action string) error {
+ out,err:=exec.CommandContext(ctx,"nft","add","rule","inet","filter","input",proto,"dport",strconv.Itoa(port),action).CombinedOutput();if err!=nil{return fmt.Errorf("nft rule failed: %s (%w)",out,err)};return nil
+}
