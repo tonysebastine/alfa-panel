@@ -111,7 +111,6 @@ func NewRouter() http.Handler {
 	mux.Handle("/api/v1/system/metrics",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleSystemMetrics)))))
 	mux.Handle("/api/v1/system/firewall",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleFirewall)))))
 	mux.Handle("/api/v1/system/firewall/deny",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleFirewall)))))
-	mux.Handle("/api/v1/sites/",generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
 	// Wrap sites with JWT protection and general rate limiter
 	mux.Handle("/api/v1/sites", generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
 	mux.Handle("/api/v1/sites/", generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
