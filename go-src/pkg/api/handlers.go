@@ -189,17 +189,10 @@ func HandleSiteAction(action string) http.HandlerFunc {
 
 		ctx := r.Context()
 		var actionErr error
-
-		switch action {
-		case "start":
-			actionErr = sitegenerator.StartSite(ctx, cleanDomain)
-		case "stop":
-			actionErr = sitegenerator.StopSite(ctx, cleanDomain)
-		case "restart":
-			actionErr = sitegenerator.RestartSite(ctx, cleanDomain)
-		default:
-			writeJSONError(w, http.StatusBadRequest, "Unknown action")
-			return
+		if agent.Enabled() {
+			_, actionErr = agent.Call(ctx, action, cleanDomain, false)
+		} else {
+			switch action { case "start": actionErr=sitegenerator.StartSite(ctx,cleanDomain); case "stop": actionErr=sitegenerator.StopSite(ctx,cleanDomain); case "restart": actionErr=sitegenerator.RestartSite(ctx,cleanDomain); default: writeJSONError(w,http.StatusBadRequest,"Unknown action"); return }
 		}
 
 		if actionErr != nil {
