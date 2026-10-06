@@ -7,6 +7,7 @@ import (
 
 	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/system"
+	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
 
 func HandleSystemMetrics(w http.ResponseWriter,r *http.Request){
@@ -20,9 +21,9 @@ func HandleFirewall(w http.ResponseWriter,r *http.Request){
 	if !agent.Enabled(){writeJSONError(w,http.StatusServiceUnavailable,"privileged agent is required");return}
 	switch r.Method{
 	case http.MethodGet:
-		b,err:=agent.Call(r.Context(),"firewall_list","",false);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};var rules []system.FirewallRule;if err:=json.Unmarshal(b,&rules);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid firewall response");return};writeJSON(w,http.StatusOK,map[string]any{"backend":strings.TrimSpace("managed"),"rules":rules})
+		b,err:=agent.Call(r.Context(),"firewall_list","",false);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};var rules []system.FirewallRule;if err:=json.Unmarshal(b,&rules);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid firewall response");return};writeJSON(w,http.StatusOK,map[string]any{"backend":"managed","rules":rules})
 	case http.MethodPost:
-		var p system.FirewallRequest;if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&p);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid firewall request");return};op:="firewall_allow";if strings.EqualFold(p.Comment,"DENY"){op="firewall_deny"};b,err:=agent.CallJSON(r.Context(),op,"",false,p);if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return};writeJSON(w,http.StatusOK,map[string]any{"status":"applied","details":json.RawMessage(b)})
+		var p system.FirewallRequest;if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&p);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid firewall request");return};op:="firewall_allow";if strings.HasSuffix(r.URL.Path,"/deny"){op="firewall_deny"};b,err:=agent.CallJSON(r.Context(),op,"",false,p);if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return};writeJSON(w,http.StatusOK,map[string]any{"status":"applied","details":json.RawMessage(b)})
 	default:writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed")
 	}
 }
