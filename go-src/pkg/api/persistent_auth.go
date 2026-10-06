@@ -119,3 +119,13 @@ func CreatePersistentUser(username,password,totp,role string) (*store.User,error
 }
 
 func newUserID() string { b:=make([]byte,12);if _,err:=rand.Read(b);err!=nil{return "user-"+time.Now().UTC().Format("20060102150405.000000000")};return "user-"+hex.EncodeToString(b) }
+
+func UpdatePersistentCredentials(userID,password,currentTOTP,newTOTP string)(error){
+ s:=persistentAuth();if s==nil{return errors.New("persistent auth unavailable")}
+ u,err:=s.GetUser(userID);if err!=nil{return errors.New("user not found")}
+ if password!=""{if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash),[]byte(password))!=nil{return errors.New("invalid password")}}
+ secret,err:=decryptSecret(u.TOTPSecret);if err!=nil||!VerifyTOTP(secret,currentTOTP,30,1){return errors.New("invalid current TOTP")}
+ if password!=""{h,err:=bcrypt.GenerateFromPassword([]byte(password),bcrypt.DefaultCost);if err!=nil{return err};u.PasswordHash=string(h)}
+ if newTOTP!=""{enc,err:=encryptSecret(newTOTP);if err!=nil{return err};u.TOTPSecret=enc}
+ u.UpdatedAt=time.Now().UTC();return s.PutUser(*u)
+}
