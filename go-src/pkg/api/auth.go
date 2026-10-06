@@ -32,16 +32,16 @@ func SetJWTSecret(secret string) { jwtSecretKey = []byte(secret) }
 
 func init() { if s := strings.TrimSpace(os.Getenv("PANEL_JWT_SECRET")); s != "" { jwtSecretKey = []byte(s) } }
 
-func AuthenticateAdmin(username, password, totpCode string) error {
+func AuthenticateIdentity(username, password, totpCode string) (string,string,error) {
 	if persistentAuth() != nil {
-		return authenticatePersistent(username, password, totpCode)
+		u,err:=authenticatePersistent(username,password,totpCode);if err!=nil{return "","",err};return u.ID,u.Role,nil
 	}
 	expectedUser := strings.TrimSpace(os.Getenv("PANEL_ADMIN_USERNAME"))
 	hash := strings.TrimSpace(os.Getenv("PANEL_ADMIN_PASSWORD_BCRYPT"))
 	secret := strings.TrimSpace(os.Getenv("PANEL_TOTP_SECRET"))
-	if expectedUser == "" || hash == "" || secret == "" { return errors.New("panel administrator credentials are not configured") }
-	if !hmac.Equal([]byte(username), []byte(expectedUser)) || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil || !VerifyTOTP(secret, totpCode, 30, 1) { return errors.New("invalid credentials") }
-	return nil
+	if expectedUser == "" || hash == "" || secret == "" { return "","",errors.New("panel administrator credentials are not configured") }
+	if !hmac.Equal([]byte(username), []byte(expectedUser)) || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil || !VerifyTOTP(secret, totpCode, 30, 1) { return "","",errors.New("invalid credentials") }
+	return username,"admin",nil
 }
 
 func RefreshToken(token string) (*TokenPair, error) {
