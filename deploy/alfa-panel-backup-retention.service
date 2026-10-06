@@ -1,0 +1,7 @@
+[Unit]
+Description=ALFA-PANEL backup retention cleanup
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/alfa-panel/bin/panel-agent --prune-backups 7
