@@ -54,7 +54,7 @@ func SitePermissionForRequest(r *http.Request) string {
 		return PermSitesRead
 	case r.Method == http.MethodPost && (path == "/api/v1/sites" || path == "/api/v1/sites/"):
 		return PermSitesCreate
-	case strings.HasSuffix(path, "/tomcat/deploy-war"), strings.HasSuffix(path, "/python/install-deps"):
+	case strings.HasSuffix(path, "/tomcat/deploy-war"), strings.HasSuffix(path, "/python/install-deps"), strings.HasSuffix(path, "/ssl"):
 		return PermSitesDeploy
 	case strings.HasSuffix(path, "/delete"):
 		return PermSitesDelete
