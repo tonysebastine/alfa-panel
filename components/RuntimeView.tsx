@@ -14,7 +14,7 @@ export default function RuntimeView({domain}:{domain:string}){
   useEffect(()=>{refresh()},[refresh]);
 
   const action=async(name:string)=>{setBusy(true);try{await api.siteAction(domain,name);await refresh()}catch(e){setError(e instanceof Error?e.message:'Runtime action failed')}finally{setBusy(false)}};
-  const loadLogs=async()=>{try{const base=(process.env.NEXT_PUBLIC_API_BASE_URL||'').replace(/\/$/,'');const token=sessionStorage.getItem('panel_refresh_token');void token;setLogs('Live log streaming is available through the authenticated agent endpoint. Use the site Logs view to attach the stream.')}catch{}};
+  const loadLogs=()=>setLogs('Live log streaming is available through the authenticated agent endpoint. Open the Logs view to attach the stream.');
 
   if(!domain)return <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center text-slate-400">Select a site to inspect its runtime.</div>;
   return <div className="space-y-5">
