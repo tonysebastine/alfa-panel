@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
+	"golang.org/x/crypto/bcrypt"
 	"strings"
 
 	"github.com/panel/panel-agent/pkg/agent"
@@ -322,6 +324,22 @@ func HandleDeleteUser(w http.ResponseWriter,r *http.Request){
 	claims,_:=r.Context().Value(UserContextKey).(*JWTClaims);if claims!=nil&&claims.Subject==id{writeJSONError(w,http.StatusBadRequest,"cannot delete current user");return}
 	if s:=persistentAuth();s!=nil{if err:=s.DeleteUser(id);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to delete user");return};writeJSON(w,http.StatusOK,map[string]string{"status":"deleted","id":id});return}
 	writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable")
+}
+
+func HandleUpdateUser(w http.ResponseWriter,r *http.Request){
+ if r.Method!=http.MethodPut{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
+ id:=strings.TrimSpace(strings.Trim(strings.TrimPrefix(r.URL.Path,"/api/v1/users/"),"/"));if id==""{writeJSONError(w,http.StatusBadRequest,"user id required");return}
+ s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store unavailable");return}
+ u,err:=s.GetUser(id);if err!=nil{writeJSONError(w,http.StatusNotFound,"user not found");return}
+ var req struct{Role string `json:"role"`;Enabled *bool `json:"enabled"`;Password string `json:"password"`;TOTPSecret string `json:"totp_secret"`}
+ if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid request");return}
+ if req.Role!=""{role:=strings.ToLower(strings.TrimSpace(req.Role));if !HasPermission(role,PermSitesRead){writeJSONError(w,http.StatusBadRequest,"invalid role");return};u.Role=role}
+ if req.Enabled!=nil{u.Enabled=*req.Enabled}
+ if req.Password!=""{if len(req.Password)<12{writeJSONError(w,http.StatusBadRequest,"password must be at least 12 characters");return};h,e:=bcrypt.GenerateFromPassword([]byte(req.Password),bcrypt.DefaultCost);if e!=nil{writeJSONError(w,http.StatusInternalServerError,"password hashing failed");return};u.PasswordHash=string(h)}
+ if req.TOTPSecret!=""{enc,e:=encryptSecret(req.TOTPSecret);if e!=nil{writeJSONError(w,http.StatusInternalServerError,"TOTP encryption failed");return};u.TOTPSecret=enc}
+ if u.Role=="owner"||u.Role=="admin" {u.Enabled=true}
+ u.UpdatedAt=time.Now().UTC();if err:=s.PutUser(*u);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to update user");return}
+ writeJSON(w,http.StatusOK,map[string]any{"id":u.ID,"username":u.Username,"role":u.Role,"enabled":u.Enabled})
 }
 
 func HandleAudit(w http.ResponseWriter,r *http.Request){
