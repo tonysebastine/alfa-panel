@@ -17,10 +17,10 @@ import (
 )
 
 // Default paths for 1Panel reverse proxy configuration
-const (
-	DefaultProxyVhostDir     = "/opt/panel/proxy/vhosts"
-	DefaultOpenRestyContainer = "1panel-openresty"
-	DefaultCertBasePath      = "/opt/panel/ssl"
+var (
+	DefaultProxyVhostDir = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_VHOST_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/conf.d/vhosts"}()
+	DefaultOpenRestyContainer = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_CONTAINER"));v!=""{return v};return "1panel-openresty"}()
+	DefaultCertBasePath = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_SSL_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/ssl"}()
 )
 
 // SSLMode describes the certificate management state.
