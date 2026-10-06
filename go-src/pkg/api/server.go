@@ -54,6 +54,7 @@ func NewRouter() http.Handler {
 			HandleSiteAction("restart")(w, r)
 			return
 		}
+		if strings.HasSuffix(path, "/ssl") { HandleSSLIssue(w,r); return }
 		if strings.HasSuffix(path, "/delete") {
 			HandleDeleteSite(w, r)
 			return
