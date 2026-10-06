@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Activity, RotateCw, Square, Play, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api-client';
 
@@ -10,8 +10,8 @@ export default function RuntimeView({domain}:{domain:string}){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
 
-  const refresh=async()=>{if(!domain)return;try{const r:any=await api.listSites();const s=(r.sites||[]).find((x:any)=>x.domain===domain);setStatus(s||null);setError(null)}catch(e){setError(e instanceof Error?e.message:'Unable to load runtime status')}};
-  useEffect(()=>{refresh()},[domain]);
+  const refresh=useCallback(async()=>{if(!domain)return;try{const r:any=await api.listSites();const s=(r.sites||[]).find((x:any)=>x.domain===domain);setStatus(s||null);setError(null)}catch(e){setError(e instanceof Error?e.message:'Unable to load runtime status')}},[domain]);
+  useEffect(()=>{refresh()},[refresh]);
 
   const action=async(name:string)=>{setBusy(true);try{await api.siteAction(domain,name);await refresh()}catch(e){setError(e instanceof Error?e.message:'Runtime action failed')}finally{setBusy(false)}};
   const loadLogs=async()=>{try{const base=(process.env.NEXT_PUBLIC_API_BASE_URL||'').replace(/\/$/,'');const token=sessionStorage.getItem('panel_refresh_token');void token;setLogs('Live log streaming is available through the authenticated agent endpoint. Use the site Logs view to attach the stream.')}catch{}};
