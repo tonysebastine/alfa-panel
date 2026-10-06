@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"strconv"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -96,4 +97,15 @@ func (m *Manager) Restore(domain, artifact string) error {
 	uid,gid,_:=runtimeIdentity(dst)
 	_ = filepath.Walk(dst,func(path string,info os.FileInfo,walkErr error) error{if walkErr!=nil||info==nil{return walkErr};if filepath.Clean(path)==filepath.Join(dst,".env"){return nil};_ = os.Chown(path,uid,gid);return nil})
 	return nil
+}
+
+func (m *Manager) Prune(domain string,keep int)(int,error){
+ if keep<1{return 0,errors.New("keep must be at least 1")}
+ clean,err:=validDomainPath(m.BackupDir,domain);if err!=nil{return 0,err}
+ entries,err:=os.ReadDir(clean);if os.IsNotExist(err){return 0,nil};if err!=nil{return 0,err}
+ type item struct{name string;mod time.Time};items:=make([]item,0,len(entries))
+ for _,e:=range entries{if e.IsDir(){continue};info,err:=e.Info();if err!=nil{continue};items=append(items,item{e.Name(),info.ModTime()})}
+ sort.Slice(items,func(i,j int)bool{return items[i].mod.After(items[j].mod)})
+ removed:=0;for i:=keep;i<len(items);i++{if err:=os.Remove(filepath.Join(clean,items[i].name));err!=nil{return removed,err};removed++}
+ return removed,nil
 }
