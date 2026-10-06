@@ -28,9 +28,10 @@ fi
 chmod 0755 "$BIN/panel-api" "$BIN/panel-agentd"
 install -m 0644 "$REPO_ROOT/deploy/alfa-panel-agent.service" /etc/systemd/system/alfa-panel-agent.service
 install -m 0644 "$REPO_ROOT/deploy/alfa-panel-api.service" /etc/systemd/system/alfa-panel-api.service
+install -m 0644 "$REPO_ROOT/deploy/alfa-panel-acme.service" "$REPO_ROOT/deploy/alfa-panel-acme.timer" "$REPO_ROOT/deploy/alfa-panel-backup-retention.service" "$REPO_ROOT/deploy/alfa-panel-backup-retention.timer" /etc/systemd/system/
 
 chown -R root:root "$PREFIX"
 chown -R root:root "$DATA"
 chmod 0700 "$DATA/data" "$DATA/backups"
 systemctl daemon-reload
-echo "Install complete. Configure $ETC/api.env, then: systemctl enable --now alfa-panel-agent alfa-panel-api"
+echo "Install complete. Configure $ETC/api.env, then: systemctl enable --now alfa-panel-agent alfa-panel-api alfa-panel-acme.timer alfa-panel-backup-retention.timer"
