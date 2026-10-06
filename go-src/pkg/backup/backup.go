@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"os"
 	"bufio"
 	"strconv"
@@ -63,6 +64,7 @@ func (m *Manager) Create(domain string) (*Artifact,error) {
 	})
 	if err==nil{err=tw.Close()};if err==nil{err=gz.Close()};if err==nil{err=f.Sync()};if err!=nil{return nil,fmt.Errorf("backup failed: %w",err)}
 	if err:=f.Close();err!=nil{return nil,err};if err:=os.Rename(tmp,final);err!=nil{return nil,err}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_BACKUP_ENCRYPTION")),"openssl"){if err:=encryptArtifact(final);err!=nil{return nil,err};final += ".enc"}
 	ok=true;st,err:=os.Stat(final);if err!=nil{return nil,err}
 	return &Artifact{ID:id,Domain:domain,Path:final,CreatedAt:now,SizeBytes:st.Size()},nil
 }
@@ -79,7 +81,8 @@ func (m *Manager) Restore(domain, artifact string) error {
 	src,err:=filepath.Abs(artifact);if err!=nil{return err}
 	if src!=base && !strings.HasPrefix(src,base+string(os.PathSeparator)){return errors.New("backup path escapes backup root")}
 	if _,err:=os.Stat(src);err!=nil{return err}
-	in,err:=os.Open(src);if err!=nil{return err};defer in.Close()
+	restorePath:=src;var decrypted string;if strings.HasSuffix(src,".enc"){decrypted,err=decryptArtifact(src);if err!=nil{return err};restorePath=decrypted;defer os.Remove(decrypted)}
+	in,err:=os.Open(restorePath);if err!=nil{return err};defer in.Close()
 	gz,err:=gzip.NewReader(in);if err!=nil{return fmt.Errorf("invalid backup archive: %w",err)};defer gz.Close()
 	tr:=tar.NewReader(gz)
 	for {
@@ -108,4 +111,16 @@ func (m *Manager) Prune(domain string,keep int)(int,error){
  sort.Slice(items,func(i,j int)bool{return items[i].mod.After(items[j].mod)})
  removed:=0;for i:=keep;i<len(items);i++{if err:=os.Remove(filepath.Join(clean,items[i].name));err!=nil{return removed,err};removed++}
  return removed,nil
+}
+
+func encryptArtifact(path string) error {
+ pass:=strings.TrimSpace(os.Getenv("PANEL_BACKUP_PASSPHRASE"));if len(pass)<32{return errors.New("PANEL_BACKUP_PASSPHRASE must contain at least 32 characters when backup encryption is enabled")}
+ if _,err:=exec.LookPath("openssl");err!=nil{return errors.New("openssl is required for backup encryption")}
+ out:=path+".enc";cmd:=exec.Command("openssl","enc","-aes-256-cbc","-pbkdf2","-salt","-in",path,"-out",out,"-pass","env:PANEL_BACKUP_PASSPHRASE");cmd.Env=append(os.Environ(),"PANEL_BACKUP_PASSPHRASE="+pass);if b,err:=cmd.CombinedOutput();err!=nil{_ = os.Remove(out);return fmt.Errorf("backup encryption failed: %s: %w",b,err)};return os.Remove(path)
+}
+func decryptArtifact(path string)(string,error){
+ pass:=strings.TrimSpace(os.Getenv("PANEL_BACKUP_PASSPHRASE"));if len(pass)<32{return "",errors.New("backup passphrase is not configured")}
+ if _,err:=exec.LookPath("openssl");err!=nil{return "",errors.New("openssl is required for encrypted restore")}
+ tmp,err:=os.CreateTemp(filepath.Dir(path),".restore-*.tar.gz");if err!=nil{return "",err};tmpPath:=tmp.Name();if err:=tmp.Close();err!=nil{return "",err}
+ cmd:=exec.Command("openssl","enc","-d","-aes-256-cbc","-pbkdf2","-in",path,"-out",tmpPath,"-pass","env:PANEL_BACKUP_PASSPHRASE");cmd.Env=append(os.Environ(),"PANEL_BACKUP_PASSPHRASE="+pass);if b,err:=cmd.CombinedOutput();err!=nil{_ = os.Remove(tmpPath);return "",fmt.Errorf("backup decryption failed: %s: %w",b,err)};return tmpPath,nil
 }
