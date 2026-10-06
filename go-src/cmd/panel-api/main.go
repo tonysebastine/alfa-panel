@@ -42,7 +42,7 @@ func main() {
 	srv := &http.Server{
 		Addr: addr, Handler: mux,
 		ReadHeaderTimeout: 5*time.Second, ReadTimeout: 30*time.Second,
-		WriteTimeout: 120*time.Second, IdleTimeout: 120*time.Second,
+		WriteTimeout: 15*time.Minute, IdleTimeout: 120*time.Second,
 		MaxHeaderBytes: 1<<20,
 		BaseContext: func(net.Listener) context.Context { return context.Background() },
 	}
