@@ -62,6 +62,9 @@ func ValidateConfig(cfg *SiteConfig) error {
 	if cfg.Port < 1024 || cfg.Port > 65535 { return fmt.Errorf("internal port must be between 1024 and 65535, got %d", cfg.Port) }
 	if cfg.Type == SiteTypeTomcat && cfg.Port != 8080 { return fmt.Errorf("Tomcat runtime currently supports internal port 8080 only, got %d", cfg.Port) }
 
+	if cfg.NetworkName==""{cfg.NetworkName=SiteNetworkName(cfg.Domain)}
+	if cfg.NetworkName!=SiteNetworkName(cfg.Domain){return fmt.Errorf("network_name must match deterministic tenant network")}
+
 	// 4. Security Profile
 	if err := ValidateSecurityProfile(&cfg.Security); err != nil {
 		return fmt.Errorf("security configuration error: %w", err)
