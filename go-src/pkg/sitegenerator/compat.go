@@ -6,7 +6,7 @@ import (
 )
 
 // BaseSitesDir is the canonical host root for managed sites.
-var BaseSitesDir = "/opt/panel/apps/sites"
+var BaseSitesDir = func() string { if v:=strings.TrimSpace(os.Getenv("PANEL_SITES_DIR"));v!=""{return v};return "/opt/panel/apps/sites" }()
 
 // SanitizeDomain is the canonical compatibility wrapper used by lifecycle services.
 func SanitizeDomain(domain string) (string, error) {
