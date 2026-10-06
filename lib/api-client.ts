@@ -66,6 +66,12 @@ export const api = {
   siteAction: (domain:string, action:string) => request(`/api/v1/sites/${encodeURIComponent(domain)}/${action}`, {method:'POST'}),
   users: () => request<{users:any[]}>('/api/v1/users'),
   createUser: (payload:any) => request('/api/v1/users',{method:'POST',body:JSON.stringify(payload)}),
+  metrics: () => request<any>("/api/v1/system/metrics"),
+  firewall: () => request<{rules:any[]}>("/api/v1/system/firewall"),
+  firewallAllow: (payload:any) => request("/api/v1/system/firewall",{method:"POST",body:JSON.stringify(payload)}),
+  firewallDeny: (payload:any) => request("/api/v1/system/firewall/deny",{method:"POST",body:JSON.stringify(payload)}),
+  issueSSL: (domain:string) => request(`/api/v1/sites/${encodeURIComponent(domain)}/ssl`,{method:"POST"}),
+  changeCredentials: (payload:any) => request("/api/v1/auth/credentials",{method:"POST",body:JSON.stringify(payload)}),
   audit: () => request<{events:any[]}>('/api/v1/audit'),
   deleteSite: (domain:string, purge:boolean) => request(`/api/v1/sites/${encodeURIComponent(domain)}/delete`, {method:'POST',body:JSON.stringify({confirm_domain:domain,purge})}),
 };
