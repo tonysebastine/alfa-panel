@@ -126,7 +126,7 @@ func decryptArtifact(path string)(string,error){
 }
 
 func (m *Manager) Offload(a *Artifact) error {
- remote:=strings.TrimSpace(os.Getenv("PANEL_BACKUP_REMOTE"));if remote==""{return nil}
+ remote:=strings.TrimSpace(os.Getenv("PANEL_BACKUP_REMOTE"));if remote==""{return nil};if !strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_BACKUP_ENCRYPTION")),"openssl"){return errors.New("off-host backup requires PANEL_BACKUP_ENCRYPTION=openssl")}
  if a==nil{return errors.New("backup artifact is required")}
  if _,err:=exec.LookPath("rclone");err!=nil{return errors.New("rclone is required when PANEL_BACKUP_REMOTE is configured")}
  dst:=strings.TrimSuffix(remote,"/")+"/"+a.Domain
