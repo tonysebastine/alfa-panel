@@ -19,6 +19,7 @@ import (
 	"github.com/panel/panel-agent/pkg/agentproto"
 	"github.com/panel/panel-agent/pkg/backup"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
+	"github.com/panel/panel-agent/pkg/system"
 )
 
 const defaultSocket="/run/alfa-panel/agent.sock"
@@ -73,6 +74,14 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "file_write":
 		var p struct{Path string `json:"path"`;Content string `json:"content"`};if err=json.Unmarshal(req.Payload,&p);err==nil{err=writeFileContent(req.Domain,p.Path,p.Content);data=map[string]any{"path":p.Path,"status":"saved"}}
 
+	case "metrics":
+		data,err=system.CollectMetrics(r.Context())
+	case "firewall_list":
+		data,err=system.NewFirewallManager().ListRules(r.Context())
+	case "firewall_allow":
+		var p system.FirewallRequest;if err=json.Unmarshal(req.Payload,&p);err==nil{err=system.NewFirewallManager().Allow(p)}
+	case "firewall_deny":
+		var p system.FirewallRequest;if err=json.Unmarshal(req.Payload,&p);err==nil{err=system.NewFirewallManager().Deny(p)}
 	case "ssl_issue":
 		m:=acme.NewManager();if err=m.EnsureHTTP01(r.Context(),req.Domain);err==nil{var cfg sitegenerator.SiteConfig;raw,_:=json.Marshal(req.Payload);if len(raw)>0{_ = json.Unmarshal(raw,&cfg)};cfg.Domain=req.Domain;cfg.Proxy.EnableSSL=true;cfg.BaseDir=sitegenerator.BaseSitesDir;cfg.NetworkName=sitegenerator.SiteNetworkName(req.Domain);if cfg.Port==0{cfg.Port=8080};if cfg.Proxy.UpstreamPort==0{cfg.Proxy.UpstreamPort=cfg.Port};err=sitegenerator.WriteVhostConfig(req.Domain,sitegenerator.ResolveContainerName(req.Domain),cfg.Proxy.UpstreamPort,true);if err==nil{err=sitegenerator.ReloadProxy(r.Context())}};data=map[string]any{"domain":req.Domain,"ssl":"enabled"}
 	case "ssl_renew":
