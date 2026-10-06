@@ -74,6 +74,9 @@ type TokenPair struct {
 }
 
 // JWTClaims holds standard and custom token payload fields.
+type loginIdentityKey struct{}
+var LoginIdentityKey loginIdentityKey
+
 type JWTClaims struct {
 	Subject   string `json:"sub"`
 	Role      string `json:"role"`
