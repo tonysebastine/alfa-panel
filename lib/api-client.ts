@@ -72,6 +72,7 @@ export const api = {
   firewallDeny: (payload:any) => request("/api/v1/system/firewall/deny",{method:"POST",body:JSON.stringify(payload)}),
   issueSSL: (domain:string) => request(`/api/v1/sites/${encodeURIComponent(domain)}/ssl`,{method:"POST"}),
   changeCredentials: (payload:any) => request("/api/v1/auth/credentials",{method:"POST",body:JSON.stringify(payload)}),
+  updateUser: (id:string,payload:any) => request(`/api/v1/users/${encodeURIComponent(id)}`,{method:"PUT",body:JSON.stringify(payload)}),
   audit: () => request<{events:any[]}>('/api/v1/audit'),
   deleteSite: (domain:string, purge:boolean) => request(`/api/v1/sites/${encodeURIComponent(domain)}/delete`, {method:'POST',body:JSON.stringify({confirm_domain:domain,purge})}),
 };
