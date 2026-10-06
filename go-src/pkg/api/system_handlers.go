@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/system"
