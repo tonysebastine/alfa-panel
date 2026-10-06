@@ -37,3 +37,14 @@ This is a security policy and control description, not a certification.
 - Site deletion requires an exact-domain confirmation and performs proxy/network cleanup.
 - Backup restore creates a pre-restore backup before replacing site data.
 - WAR uploads are staged by the unprivileged API and activated by the agent after size, magic-byte, path, and context validation.
+
+
+## Infrastructure security additions
+
+ACME issuance supports HTTP-01 and optional Cloudflare DNS-01. Cloudflare DNS tokens are accepted only by the privileged agent and written to an ephemeral 0600 credential file for certbot; they are never sent to the browser.
+
+Host firewall mutations are typed allow/deny operations and are available only to the `system.manage` role. nftables rules are created without a shell and the managed input chain is initialized explicitly.
+
+Backups can be encrypted with AES-256-CBC using OpenSSL before off-host replication. Off-host replication is refused unless encryption is enabled. The remote destination is passed as an argument to rclone, never through a shell.
+
+The production UI consumes live metrics and authenticated log streams; simulated telemetry and demo credentials are not part of the production control path.
