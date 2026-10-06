@@ -78,7 +78,9 @@ func HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate access and refresh token pair
-	tokenPair, err := GenerateTokenPair(req.Username, "admin")
+	userID, role := req.Username, "admin"
+	if v,ok:=r.Context().Value(LoginIdentityKey).([]string);ok&&len(v)==2{userID,role=v[0],v[1]}
+	tokenPair, err := GenerateTokenPair(userID, role)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Token generation failed")
 		return
