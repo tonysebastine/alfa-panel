@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, Users, ScrollText, Plus } from 'lucide-react';
 import { api } from '@/lib/api-client';
 
@@ -11,8 +11,8 @@ export default function SettingsView(){
   const [error,setError]=useState<string|null>(null);
   const [form,setForm]=useState({username:'',password:'',totp_secret:'',role:'developer'});
 
-  const load=async()=>{try{const [u,a]=await Promise.all([api.users(),api.audit()]);setUsers(u.users||[]);setEvents(a.events||[]);setError(null)}catch(e){setError(e instanceof Error?e.message:'Unable to load settings')}};
-  useEffect(()=>{load()},[]);
+  const load=useCallback(async()=>{try{const [u,a]=await Promise.all([api.users(),api.audit()]);setUsers(u.users||[]);setEvents(a.events||[]);setError(null)}catch(e){setError(e instanceof Error?e.message:'Unable to load settings')}},[]);
+  useEffect(()=>{load()},[load]);
 
   const create=async()=>{setBusy(true);setError(null);try{await api.createUser(form);setForm({username:'',password:'',totp_secret:'',role:'developer'});await load()}catch(e){setError(e instanceof Error?e.message:'User creation failed')}finally{setBusy(false)}};
 
