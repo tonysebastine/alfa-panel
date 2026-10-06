@@ -79,8 +79,8 @@ func authenticatePersistent(username, password, code string) (*store.User,error)
 	for _, u := range users {
 		if !u.Enabled || !strings.EqualFold(u.Username, strings.TrimSpace(username)) { continue }
 		if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil { return nil,errors.New("invalid credentials") }
-		totp, err := decryptSecret(u.TOTPSecret); if err != nil { return errors.New("authentication backend unavailable") }
-		if !VerifyTOTP(totp, code, 30, 1) { return errors.New("invalid credentials") }
+		totp, err := decryptSecret(u.TOTPSecret); if err != nil { return nil,errors.New("authentication backend unavailable") }
+		if !VerifyTOTP(totp, code, 30, 1) { return nil,errors.New("invalid credentials") }
 		u.TOTPSecret=""
 		return &u,nil
 	}
