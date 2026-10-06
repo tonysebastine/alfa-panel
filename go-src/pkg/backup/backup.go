@@ -124,3 +124,11 @@ func decryptArtifact(path string)(string,error){
  tmp,err:=os.CreateTemp(filepath.Dir(path),".restore-*.tar.gz");if err!=nil{return "",err};tmpPath:=tmp.Name();if err:=tmp.Close();err!=nil{return "",err}
  cmd:=exec.Command("openssl","enc","-d","-aes-256-cbc","-pbkdf2","-in",path,"-out",tmpPath,"-pass","env:PANEL_BACKUP_PASSPHRASE");cmd.Env=append(os.Environ(),"PANEL_BACKUP_PASSPHRASE="+pass);if b,err:=cmd.CombinedOutput();err!=nil{_ = os.Remove(tmpPath);return "",fmt.Errorf("backup decryption failed: %s: %w",b,err)};return tmpPath,nil
 }
+
+func (m *Manager) Offload(a *Artifact) error {
+ remote:=strings.TrimSpace(os.Getenv("PANEL_BACKUP_REMOTE"));if remote==""{return nil}
+ if a==nil{return errors.New("backup artifact is required")}
+ if _,err:=exec.LookPath("rclone");err!=nil{return errors.New("rclone is required when PANEL_BACKUP_REMOTE is configured")}
+ dst:=strings.TrimSuffix(remote,"/")+"/"+a.Domain
+ cmd:=exec.Command("rclone","copy",a.Path,dst,"--immutable");out,err:=cmd.CombinedOutput();if err!=nil{return fmt.Errorf("off-host backup failed: %s: %w",strings.TrimSpace(string(out)),err)};return nil
+}
