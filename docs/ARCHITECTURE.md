@@ -47,3 +47,8 @@ The agent accepts typed operations only. Arbitrary shell execution is not a supp
 ## Tenant networking
 
 Each site receives a deterministic, collision-resistant Docker bridge network derived from its validated domain. The reverse proxy is explicitly attached to that network; tenant containers are not placed on a shared tenant network and no application host ports are published.
+
+
+## ACME filesystem contract
+
+The host path `PANEL_ACME_WEBROOT` must be mounted read/write into the managed OpenResty container at `/var/www/letsencrypt`. `PANEL_ACME_SSLROOT` is the host certificate store and is mounted into the proxy container at the same path used by generated vhosts. The API never handles certificate private-key bytes.
