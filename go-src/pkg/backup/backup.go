@@ -64,7 +64,7 @@ func (m *Manager) Create(domain string) (*Artifact,error) {
 	})
 	if err==nil{err=tw.Close()};if err==nil{err=gz.Close()};if err==nil{err=f.Sync()};if err!=nil{return nil,fmt.Errorf("backup failed: %w",err)}
 	if err:=f.Close();err!=nil{return nil,err};if err:=os.Rename(tmp,final);err!=nil{return nil,err}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_BACKUP_ENCRYPTION")),"openssl"){if err:=encryptArtifact(final);err!=nil{return nil,err};final += ".enc"}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_BACKUP_ENCRYPTION")),"openssl"){if err:=encryptArtifact(final);err!=nil{_ = os.Remove(final);return nil,err};final += ".enc"}
 	ok=true;st,err:=os.Stat(final);if err!=nil{return nil,err}
 	return &Artifact{ID:id,Domain:domain,Path:final,CreatedAt:now,SizeBytes:st.Size()},nil
 }
