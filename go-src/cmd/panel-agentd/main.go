@@ -54,7 +54,7 @@ func operate(w http.ResponseWriter,r *http.Request){
 	case "status":var s sitegenerator.SiteStatus;s,err=sitegenerator.GetSiteStatus(r.Context(),req.Domain);data=s
 	case "install_deps":data,err=sitegenerator.InstallPythonDependencies(r.Context(),req.Domain)
 	case "backup_create":
-		a:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");data,err=a.Create(req.Domain)
+		a:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");var artifact *backup.Artifact;artifact,err=a.Create(req.Domain);if err==nil{err=a.Offload(artifact)};data=artifact
 	case "backup_restore":
 		var p struct{Artifact string `json:"artifact"`}
 		if err=json.Unmarshal(req.Payload,&p);err==nil {
