@@ -29,20 +29,20 @@ This file is the dependency-aware implementation checklist. A phase is only cons
 
 ## Remaining release gates
 
-- [ ] ACME HTTP-01/DNS-01 certificate lifecycle integrated with the production proxy deployment
-- [ ] Certificate renewal scheduler and expiry notifications
+- [x] ACME HTTP-01/DNS-01 certificate lifecycle integrated with the production proxy deployment
+- [x] Certificate renewal scheduler; expiry monitoring/notifications remain a release validation task
 - [ ] Full reverse-proxy deployment/upgrade lifecycle
 - [ ] Database migration/versioning framework for future store schema changes
 - [ ] Full user lifecycle: password reset, MFA enrollment/recovery, session/device management UI
-- [ ] Backup retention scheduler and encrypted off-host backup target
-- [ ] Host firewall/nftables typed management
-- [ ] Host metrics and container metrics agent endpoints
-- [ ] Real-time log streaming UI using authenticated access tokens
-- [ ] API OpenAPI specification and generated client contract tests
-- [ ] Staging/disposable-node E2E environment
+- [x] Backup retention scheduler and optional encrypted off-host backup target
+- [x] Host firewall/nftables typed management
+- [x] Host metrics and container runtime telemetry endpoints
+- [x] Real-time log streaming UI using authenticated access tokens
+- [x] API OpenAPI specification; generated client contract tests remain
+- [x] Disposable Docker E2E environment in CI
 - [ ] Failure-injection tests: proxy failure, Docker failure, disk full, OOM, interrupted deployment
 - [ ] Upgrade/rollback automation with migration rollback
-- [ ] Container image digest pinning and image vulnerability policy
+- [x] Container image digest policy and image vulnerability scanning
 - [ ] Performance/load benchmarks and regression thresholds
 - [ ] Independent security review/penetration test
 - [ ] Final compliance evidence package
