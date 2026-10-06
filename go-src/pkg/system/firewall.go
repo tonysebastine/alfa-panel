@@ -196,3 +196,7 @@ func parseUFWNumberedOutput(output string) []FirewallRule {
 
 	return rules
 }
+
+type FirewallRequest struct { Port int `json:"port"`; Protocol string `json:"protocol"`; Comment string `json:"comment"` }
+func (fm *FirewallManager) Allow(req FirewallRequest) error { return fm.AllowPort(context.Background(),req.Port,req.Protocol,req.Comment) }
+func (fm *FirewallManager) Deny(req FirewallRequest) error { return fm.DenyPort(context.Background(),req.Port,req.Protocol) }
