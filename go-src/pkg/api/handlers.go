@@ -6,13 +6,13 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time"
-	"golang.org/x/crypto/bcrypt"
 	"strings"
+	"time"
 
 	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/backup"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // LoginRequest defines credentials for authentication.
