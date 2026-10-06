@@ -75,3 +75,11 @@ export const api = {
   audit: () => request<{events:any[]}>('/api/v1/audit'),
   deleteSite: (domain:string, purge:boolean) => request(`/api/v1/sites/${encodeURIComponent(domain)}/delete`, {method:'POST',body:JSON.stringify({confirm_domain:domain,purge})}),
 };
+
+export async function streamLogs(domain:string,onLine:(line:string)=>void,signal?:AbortSignal){
+  if(!accessToken){await api.listSites();}
+  const response=await fetch(`${API_BASE}/api/v1/sites/${encodeURIComponent(domain)}/logs`,{headers:accessToken?{Authorization:`Bearer ${accessToken}`}:{},cache:'no-store',signal});
+  if(!response.ok||!response.body) throw new Error(`Log stream failed: ${response.status}`);
+  const reader=response.body.getReader();const decoder=new TextDecoder();let pending='';
+  try{while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});const lines=pending.split(/\r?\n/);pending=lines.pop()||'';for(const line of lines)onLine(line)}}finally{reader.releaseLock()}
+}
