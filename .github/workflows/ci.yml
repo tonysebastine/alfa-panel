@@ -46,7 +46,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run Gitleaks
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --redact --exit-code 1
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 detect --source=/repo --redact --exit-code 1
 
 
   dependency-and-filesystem-scan:
@@ -59,6 +59,12 @@ jobs:
       - name: Trivy filesystem scan
         run: docker run --rm -v "$PWD:/workspace" -w /workspace aquasec/trivy:0.66.0 fs --scanners vuln,secret,misconfig --ignore-unfixed .
       - name: Verify systemd units
-        run: systemd-analyze verify deploy/alfa-panel-agent.service deploy/alfa-panel-api.service
+        run: systemd-analyze verify deploy/alfa-panel-agent.service deploy/alfa-panel-api.service deploy/alfa-panel-acme.service deploy/alfa-panel-acme.timer deploy/alfa-panel-backup-retention.service deploy/alfa-panel-backup-retention.timer
       - name: Generate SBOM
         run: docker run --rm -v "$PWD:/workspace" -w /workspace anchore/syft:1.35.0 dir:. -o spdx-json=alfa-panel-sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: alfa-panel-sbom
+          path: alfa-panel-sbom.spdx.json
