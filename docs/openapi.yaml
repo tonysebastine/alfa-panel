@@ -1,0 +1,112 @@
+openapi: 3.1.0
+info:
+  title: ALFA-PANEL API
+  version: 1.0.0
+  description: Secure multi-tenant hosting control-plane API.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200': {description: Healthy}
+  /api/v1/auth/login:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Login'}
+      responses:
+        '200': {description: Token pair}
+        '401': {description: Invalid credentials}
+  /api/v1/auth/refresh:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [refresh_token], properties: {refresh_token: {type: string}}}
+      responses:
+        '200': {description: Rotated token pair}
+        '401': {description: Invalid or revoked token}
+  /api/v1/auth/logout:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [refresh_token], properties: {refresh_token: {type: string}}}
+      responses:
+        '204': {description: Logged out}
+  /api/v1/auth/credentials:
+    post:
+      summary: Change current password and/or MFA secret
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CredentialChange'}
+      responses:
+        '200': {description: Updated}
+        '400': {description: Validation failure}
+  /api/v1/sites:
+    get:
+      responses: {'200': {description: Site inventory}}
+    post:
+      responses: {'201': {description: Site created}}
+  /api/v1/sites/{domain}/start:
+    post: {responses: {'200': {description: Started}}}
+  /api/v1/sites/{domain}/stop:
+    post: {responses: {'200': {description: Stopped}}}
+  /api/v1/sites/{domain}/restart:
+    post: {responses: {'200': {description: Restarted}}}
+  /api/v1/sites/{domain}/ssl:
+    post: {responses: {'200': {description: Certificate issued and proxy activated}}}
+  /api/v1/sites/{domain}/logs:
+    get:
+      responses:
+        '200':
+          description: Chunked authenticated text log stream
+          content: {text/plain: {}}
+  /api/v1/sites/{domain}/delete:
+    post: {responses: {'200': {description: Deleted}}}
+  /api/v1/users:
+    get: {responses: {'200': {description: Users}}}
+    post: {responses: {'201': {description: User created}}}
+  /api/v1/audit:
+    get: {responses: {'200': {description: Recent audit events}}}
+  /api/v1/system/metrics:
+    get: {responses: {'200': {description: Host metrics}}}
+  /api/v1/system/firewall:
+    get: {responses: {'200': {description: Firewall rules}}}
+    post: {responses: {'200': {description: Firewall rule applied}}}
+  /api/v1/system/firewall/deny:
+    post: {responses: {'200': {description: Firewall rule denied}}}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Login:
+      type: object
+      required: [username, password, totp_code]
+      properties:
+        username: {type: string}
+        password: {type: string, minLength: 12}
+        totp_code: {type: string, pattern: '^[0-9]{6}$'}
+    CredentialChange:
+      type: object
+      required: [current_password, current_totp]
+      properties:
+        current_password: {type: string}
+        current_totp: {type: string, pattern: '^[0-9]{6}$'}
+        new_password: {type: string, minLength: 12}
+        new_totp_secret: {type: string}
