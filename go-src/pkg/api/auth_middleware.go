@@ -21,10 +21,11 @@ func SecureLoginMiddleware(next http.Handler) http.Handler {
         if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Username) == "" || req.Password == "" || req.TOTPCode == "" {
             recordAuthAudit("LOGIN_FAILED", req.Username, extractIP(r), false); writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
         }
-        if err := AuthenticateAdmin(req.Username, req.Password, req.TOTPCode); err != nil {
+        userID,role,err := AuthenticateIdentity(req.Username, req.Password, req.TOTPCode); if err != nil {
             recordAuthAudit("LOGIN_FAILED", req.Username, extractIP(r), false); writeJSONError(w, http.StatusUnauthorized, "invalid credentials"); return
         }
         recordAuthAudit("LOGIN", req.Username, extractIP(r), true)
+        ctx:=context.WithValue(r.Context(),LoginIdentityKey,[]string{userID,role}); *r=r.WithContext(ctx)
         next.ServeHTTP(w, r)
     })
 }
