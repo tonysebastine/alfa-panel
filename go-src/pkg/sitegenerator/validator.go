@@ -3,6 +3,7 @@ package sitegenerator
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -91,7 +92,13 @@ func ValidateConfig(cfg *SiteConfig) error {
 		return fmt.Errorf("unsupported site type: %s (must be 'tomcat' or 'python')", cfg.Type)
 	}
 
-	// 7. Cross-field resource validation.
+	if strings.EqualFold(os.Getenv("PANEL_REQUIRE_IMAGE_DIGEST"),"true") {
+	images:=[]string{}
+	if cfg.Type==SiteTypeTomcat&&cfg.Tomcat!=nil{images=append(images,cfg.Tomcat.Image)}
+	if cfg.Type==SiteTypePython&&cfg.Python!=nil{images=append(images,cfg.Python.Image)}
+	for _,image:=range images{if !strings.Contains(image,"@sha256:"){return fmt.Errorf("production image policy requires digest-pinned image: %s",image)}}
+}
+// 7. Cross-field resource validation.
 	if cfg.Type == SiteTypeTomcat {
 		mem,err:=parseMemoryBytes(cfg.Resources.MemoryLimit);if err!=nil{return fmt.Errorf("invalid memory limit: %w",err)}
 		heap,err:=parseMemoryBytes(cfg.Tomcat.MaxHeap);if err!=nil{return fmt.Errorf("invalid Tomcat max heap: %w",err)}
