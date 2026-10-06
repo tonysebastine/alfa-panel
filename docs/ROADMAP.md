@@ -65,3 +65,5 @@ A phase is not closed by code alone. It requires:
 ## Release status
 
 The branch is a production-hardening candidate, not yet a v1.0 release. Infrastructure E2E and the remaining release gates must pass before production certification.
+
+The latest GitHub Actions runs currently report all jobs as failed with no downloadable job logs/step data exposed by the GitHub integration. This is treated as an infrastructure/runner verification blocker rather than evidence that the implementation is green. The release remains blocked until CI produces actionable results.
