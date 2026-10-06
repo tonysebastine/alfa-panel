@@ -71,19 +71,20 @@ func BootstrapAdminIfNeeded(s *store.Store) error {
 	return s.PutUser(store.User{ID:"admin-"+username,Username:username,PasswordHash:hash,Role:"admin",TOTPSecret:totp,Enabled:true,CreatedAt:now,UpdatedAt:now})
 }
 
-func authenticatePersistent(username, password, code string) error {
+func authenticatePersistent(username, password, code string) (*store.User,error) {
 	s := persistentAuth()
-	if s == nil { return errors.New("persistent auth unavailable") }
+	if s == nil { return nil,errors.New("persistent auth unavailable") }
 	users, err := s.ListUsers()
-	if err != nil { return errors.New("authentication backend unavailable") }
+	if err != nil { return nil,errors.New("authentication backend unavailable") }
 	for _, u := range users {
 		if !u.Enabled || !strings.EqualFold(u.Username, strings.TrimSpace(username)) { continue }
-		if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil { return errors.New("invalid credentials") }
+		if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil { return nil,errors.New("invalid credentials") }
 		totp, err := decryptSecret(u.TOTPSecret); if err != nil { return errors.New("authentication backend unavailable") }
 		if !VerifyTOTP(totp, code, 30, 1) { return errors.New("invalid credentials") }
-		return nil
+		u.TOTPSecret=""
+		return &u,nil
 	}
-	return errors.New("invalid credentials")
+	return nil,errors.New("invalid credentials")
 }
 
 func persistRefreshSession(userID, refreshToken string, expiresAt time.Time) error {
