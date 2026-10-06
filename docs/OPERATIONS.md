@@ -67,3 +67,22 @@ Required production secrets include PANEL_JWT_SECRET, PANEL_MASTER_KEY, PANEL_AD
 - systemctl status alfa-panel-api
 - test -S /run/alfa-panel/agent.sock
 - curl http://127.0.0.1:8088/healthz
+
+
+## ACME / SSL
+
+Set `PANEL_ACME_WEBROOT` to the host directory mounted into the OpenResty container as `/var/www/letsencrypt`. Set `PANEL_ACME_SSLROOT` to the host certificate directory. The agent exposes only typed issuance/renewal operations. Certbot must be installed separately on the host. Enable `alfa-panel-acme.timer` after verifying DNS and HTTP reachability.
+
+For Cloudflare-proxied domains, HTTP-01 must still be reachable through the proxy, or use a future DNS-01 provider integration. Do not put Cloudflare API tokens in the frontend.
+
+## Backup retention
+
+The daily retention timer keeps the seven newest artifacts per site by default. Backups are stored with mode 0600. Production deployments should additionally copy encrypted artifacts to an off-host destination before treating the local backup as durable disaster recovery.
+
+## Firewall
+
+Firewall mutation is root-agent-only and RBAC-protected by `system.manage`. The API never executes a user-supplied shell string. Prefer allow rules for the minimum required ports and verify SSH access before changing remote firewall policy.
+
+## E2E release gate
+
+Infrastructure releases require a disposable host test covering site generation, Docker start/stop/restart, proxy activation, ACME issuance/renewal, logs, backups, restore, firewall operations, and cleanup. CI unit tests alone do not certify host integration.
