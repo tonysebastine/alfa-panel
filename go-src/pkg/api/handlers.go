@@ -217,11 +217,9 @@ func HandleSiteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reader, err := sitegenerator.StreamLogs(r.Context(), cleanDomain)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed opening log stream: %v", err))
-		return
-	}
+	var reader io.ReadCloser
+	if agent.Enabled() { reader,err=agent.Logs(r.Context(),cleanDomain) } else { reader,err=sitegenerator.StreamLogs(r.Context(),cleanDomain) }
+	if err != nil { writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("Failed opening log stream: %v",err));return }
 	defer reader.Close()
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
