@@ -2,6 +2,15 @@
 
 Production-oriented multi-tenant hosting control plane for Tomcat and Python workloads.
 
+## Engineering plan
+
+- [Master implementation plan](docs/MASTER_IMPLEMENTATION_PLAN.md)
+- [Component catalog](docs/COMPONENT_CATALOG.md)
+- [Security acceptance matrix](docs/SECURITY_ACCEPTANCE_MATRIX.md)
+- [PostgreSQL architecture decision](docs/decisions/ADR-0001-postgresql-control-plane.md)
+
+These documents describe the target design and required evidence; they do not claim that every listed feature is implemented or certified.
+
 ## Architecture
 
 - Next.js frontend, suitable for Cloudflare Pages/static edge hosting.
