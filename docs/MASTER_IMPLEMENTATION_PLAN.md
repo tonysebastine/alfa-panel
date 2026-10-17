@@ -201,3 +201,33 @@ See [Component Catalog](COMPONENT_CATALOG.md). Each component needs an owner mod
 - Cloudflare SSL modes: https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/
 - Let's Encrypt challenge types: https://letsencrypt.org/docs/challenge-types/
 - GitHub Actions secure use: https://docs.github.com/en/actions/reference/security/secure-use
+
+
+## 11. Repository audit update — 2026-10-18
+
+**Reviewed branch/head:** `feat/production-hardening` at `fa03c3474820bd51c931c49830857928bdf97497` (PR #1; draft, not merged). The feature branch is 276 commits ahead of `main` and has no commits behind it at the time of review. This was a GitHub source/CI review; no VPS commands, deployment, service restart, or production mutation was performed.
+
+### Verified CI evidence
+
+Latest inspected PR workflow run: [run 39005797735](https://github.com/tonysebastine/alfa-panel/actions/runs/39005797735), using the PR merge commit. Results:
+
+- **Pass:** Go tests and `go vet`.
+- **Pass:** Next.js lint and build.
+- **Pass:** Gitleaks secret scan.
+- **Fail:** dependency/filesystem scan; `govulncheck` reports 2 vulnerabilities affecting 1 module. Trivy, systemd unit verification, SBOM generation and upload were skipped because the earlier scan step failed.
+- **Fail:** disposable Docker E2E lifecycle script. Inspect and reproduce the first failing assertion/command before accepting lifecycle behavior.
+- **Release decision:** CI is not green; passing jobs do not override failed security/E2E jobs.
+
+### Prioritized next actions
+
+1. **P0 — Resolve CI blockers:** capture the full vulnerability identifiers and dependency paths from `govulncheck`; update or safely mitigate affected dependencies, rerun the scan, then ensure Trivy, systemd verification and SBOM stages execute. Diagnose the E2E script's first failure and fix the underlying behavior, not merely the exit code.
+2. **P0 — Validate site-domain input:** inspect and test the domain validation regex in `components/CreateSiteModal.tsx`. The PR diff shows doubled escaping in the regex literal; add positive/negative tests for ordinary FQDNs, malformed labels, slashes, backslashes and whitespace before approving.
+3. **P1 — Persistence architecture:** current implementation uses bbolt for identity/session/audit data, while the fixed target architecture specifies PostgreSQL and durable jobs. Define schema, migration/export, rollback and recovery evidence before switching stores; do not reset or discard existing data.
+4. **P1 — Deployment/rollback evidence:** test install, upgrade, rollback and interrupted operations on a disposable Debian 13 host; verify proxy reload/rollback, ACME renewal/expiry alerting, backup retention, encrypted off-host backup, and a real restore drill.
+5. **P1 — Security/supply chain:** verify every production image is digest-pinned (not just that a policy exists), review agent socket peer authorization and least privilege, and complete an independent security review.
+6. **P2 — Product completeness:** implement schema versioning/migrations, password reset/MFA recovery/session management, generated OpenAPI client contract tests, failure injection (proxy/Docker/disk-full/OOM/interrupted deploy), and measured load/performance thresholds.
+7. **Release gate:** only mark v1.0 ready after all required CI jobs pass, E2E and restore/rollback evidence is attached to PR #1, blockers are closed, and a reviewer signs off. Keep the PR in draft until then.
+
+### Audit limitations
+
+This review used GitHub's current PR diff, commit metadata, workflow job summaries and available job logs. It did not execute code locally or on the VPS, did not validate the installed host state, and did not independently confirm behavior beyond the reported tests. The working-tree preservation and no-deploy constraints remain in force.
