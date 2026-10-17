@@ -231,3 +231,25 @@ Latest inspected PR workflow run: [run 39005797735](https://github.com/tonysebas
 ### Audit limitations
 
 This review used GitHub's current PR diff, commit metadata, workflow job summaries and available job logs. It did not execute code locally or on the VPS, did not validate the installed host state, and did not independently confirm behavior beyond the reported tests. The working-tree preservation and no-deploy constraints remain in force.
+
+
+## 12. VPS reproduction addendum — 2026-10-18
+
+The branch was cloned to the isolated test checkout `/opt/alfa-panel-ci-test-20261018`; the existing `/opt/alfa-panel-src` checkout was not modified. These tests ran in disposable Docker toolchain containers unless noted.
+
+### Results from the test checkout
+
+- **PASS:** Go tests and `go vet ./...` using the Go 1.26 toolchain.
+- **PASS:** frontend ESLint and Next.js production build using Bun 1.4.3 (Next.js 15.5.27).
+- **FAIL / reproduced:** disposable Docker E2E fails before creating a site. The script sets `PANEL_AGENT_SOCKET` to a random `/tmp/.../agent.sock`, but `resolveAgentSocketPath` in `go-src/cmd/panel-agentd/socket_security.go` explicitly rejects every non-default socket path; the agent exits with `PANEL_AGENT_SOCKET must be /run/alfa-panel/agent.sock; custom socket paths are not permitted`. The script then waits for a socket that can never appear. This is a test/agent configuration contract mismatch, not evidence that the site lifecycle itself failed.
+- **FAIL:** `govulncheck ./...` reports two advisories in `github.com/docker/docker@v27.1.1+incompatible`: [GO-2026-4887](https://pkg.go.dev/vuln/GO-2026-4887) and [GO-2026-4883](https://pkg.go.dev/vuln/GO-2026-4883). The scanner output says no fixed version is available for the detected module version. Investigate current advisory metadata and supported Docker SDK upgrade paths; do not suppress the findings. If no fixed version is available, document reachability/impact and a reviewed mitigation, or keep the release blocked.
+- **Cleanup caveat:** the E2E script builds `alfa-e2e-python:local` but its cleanup trap does not remove that image. Check for/remove only this test image after confirming no test still uses it.
+
+### Required next changes
+
+1. Fix the E2E harness safely: do not weaken the production socket-path restriction merely to make a test pass. Run the agent in a disposable isolated environment with its required runtime directory and socket permissions, or introduce a narrowly scoped, explicitly test-only socket-path override guarded against production use. Add a test proving production mode still rejects arbitrary socket paths.
+2. Re-run the complete lifecycle assertions after the socket setup is corrected: create, start, health/status, backup, stop, delete, and cleanup of both container/network/image.
+3. Resolve or formally disposition both Docker SDK advisories; rerun `govulncheck`, Trivy, systemd verification and SBOM generation. All required stages must execute and pass or have a documented, reviewed exception.
+4. Frontend lint/build and Go tests/vet are green in the VPS test checkout, but this is not a production deployment or a full end-to-end pass.
+
+**Safety boundary:** only the separate test checkout and disposable toolchain containers were used. No production services were restarted, no public ingress was changed, and no PR was merged.
