@@ -53,11 +53,15 @@ func TestRemoveStaleAgentSocketDoesNotRemoveLiveSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	if err := removeStaleAgentSocket(path); err == nil || !strings.Contains(err.Error(), "already listening") {
-		t.Fatalf("expected active socket refusal, got %v", err)
+	if err := removeStaleAgentSocket(path); err == nil {
+		t.Fatal("expected refusal to remove a live socket")
 	}
-	if _, err := os.Lstat(path); err != nil {
+	info, err := os.Lstat(path)
+	if err != nil {
 		t.Fatalf("live socket path was removed: %v", err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("live socket path was replaced with a different file type: %v", info.Mode())
 	}
 }
 

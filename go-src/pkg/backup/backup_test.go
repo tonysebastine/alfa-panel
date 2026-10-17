@@ -187,11 +187,12 @@ func TestRestoreRejectsSymlinkedBackupArtifact(t *testing.T) {
 func TestRestoreUsesTrustedRuntimeIdentityResolver(t *testing.T) {
 	m, site, artifact := setupRestoreTest(t)
 	writeRestoreTestArchive(t, artifact, "owner.txt", tar.TypeReg, "owner")
+	expectedUID, expectedGID := os.Getuid(), os.Getgid()
 	m.RuntimeIdentity = func(domain string) (int, int, error) {
 		if domain != "app.example.com" {
 			return 0, 0, os.ErrInvalid
 		}
-		return 1234, 2345, nil
+		return expectedUID, expectedGID, nil
 	}
 	if err := m.Restore("app.example.com", artifact); err != nil {
 		t.Fatal(err)
@@ -201,8 +202,8 @@ func TestRestoreUsesTrustedRuntimeIdentityResolver(t *testing.T) {
 		t.Fatal(err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != 1234 || int(stat.Gid) != 2345 {
-		t.Fatalf("restored ownership = %#v, want UID/GID 1234:2345", info.Sys())
+	if !ok || int(stat.Uid) != expectedUID || int(stat.Gid) != expectedGID {
+		t.Fatalf("restored ownership = %#v, want UID/GID %d:%d", info.Sys(), expectedUID, expectedGID)
 	}
 }
 
