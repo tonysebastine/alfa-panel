@@ -49,3 +49,16 @@ Installations are versioned under /opt/alfa-panel/releases. To roll back, run de
 ## Release status
 
 This branch is a production-hardening candidate. Host-level E2E, CI health, image digest pinning for every production image, and independent security review remain release gates. No certification claim is made by this repository.
+
+
+## Latest repository audit — 2026-10-18
+
+Audited against the current `feat/production-hardening` PR head (`fa03c3474820`). This is a source/CI review only; no deployment was performed.
+
+- Pull request: [#1 — Production hardening](https://github.com/tonysebastine/alfa-panel/pull/1) remains **open and draft**.
+- Latest inspected PR CI run (2026-10-17): Go tests/vet, Next.js lint/build, and Gitleaks passed. The dependency scan failed because `govulncheck` reported **2 vulnerabilities affecting 1 module**; Trivy, systemd verification, and SBOM steps were skipped after that failure.
+- Disposable Docker E2E failed; investigate its exact failing step before treating lifecycle behavior as verified.
+- Combined commit status returned no status entries, so the individual workflow jobs above are the available evidence; the overall workflow is not green.
+- Release remains blocked pending vulnerability triage/fixes, a passing E2E run, review of the frontend domain-validation regex, production-image digest verification, PostgreSQL migration/versioning, failure-injection and rollback drills, and independent security review.
+
+Do not interpret implemented components or passing unit tests as proof of production readiness. Do not install or deploy to the live VPS until the separate deployment gate is explicitly approved.
