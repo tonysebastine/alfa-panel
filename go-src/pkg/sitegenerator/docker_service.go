@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,13 +15,14 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
 // DefaultDockerSocket defines the standard Linux host Docker daemon Unix socket.
 const DefaultDockerSocket = "/var/run/docker.sock"
+
+const DefaultProxyContainer = "1panel-openresty"
 
 // DeploymentStage tracks the current phase of bringing up a site.
 type DeploymentStage string
@@ -118,7 +118,7 @@ func NewDockerService(socketPath string, networkName string) (*DockerService, er
 		socketPath = DefaultDockerSocket
 	}
 	if networkName == "" {
-		networkName = "panel-network"
+		networkName = "panel-management"
 	}
 
 	// Verify socket existence on Linux host
@@ -158,38 +158,58 @@ func (s *DockerService) Close() error {
 	return nil
 }
 
-// EnsureInternalNetwork creates the internal panel-network bridge if it does not already exist.
-func (s *DockerService) EnsureInternalNetwork(ctx context.Context) error {
-	list, err := s.cli.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", s.networkName)),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list docker networks: %w", err)
-	}
-
+// EnsureSiteNetwork creates a dedicated tenant bridge network.
+func (s *DockerService) EnsureSiteNetwork(ctx context.Context, siteNetwork string) error {
+	if strings.TrimSpace(siteNetwork) == "" { return errors.New("site network name cannot be empty") }
+	list, err := s.cli.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", siteNetwork))})
+	if err != nil { return fmt.Errorf("failed to list docker networks: %w", err) }
 	for _, n := range list {
-		if n.Name == s.networkName {
-			return nil // Network already exists
+		if n.Name == siteNetwork {
+			if n.Labels["com.panel.managed"] != "true" || n.Labels["com.panel.scope"] != "site" { return fmt.Errorf("refusing to reuse unmanaged docker network %s", siteNetwork) }
+			return nil
 		}
 	}
-
-	// Create bridge network isolated for panel containers
-	_, err = s.cli.NetworkCreate(ctx, s.networkName, network.CreateOptions{
-		Driver:     "bridge",
-		Attachable: true,
-		Internal:   false, // Allows outbound traffic for package updates/requirements, but no direct host binding
-		Labels: map[string]string{
-			"com.panel.managed": "true",
-			"com.panel.purpose": "internal-ingress-bridge",
-		},
-		Options: map[string]string{
-			"com.docker.network.bridge.enable_icc": "true",
-		},
+	_, err = s.cli.NetworkCreate(ctx, siteNetwork, network.CreateOptions{
+		Driver: "bridge", Attachable: true, Internal: false,
+		Labels: map[string]string{"com.panel.managed":"true", "com.panel.scope":"site"},
+		Options: map[string]string{"com.docker.network.bridge.enable_icc":"true"},
 	})
-	if err != nil {
-		return fmt.Errorf("failed to create bridge network %s: %w", s.networkName, err)
-	}
+	if err != nil { return fmt.Errorf("failed to create site network %s: %w", siteNetwork, err) }
+	return nil
+}
 
+// ConnectProxyToSiteNetwork attaches only the managed ingress proxy to a tenant network.
+func (s *DockerService) ConnectProxyToSiteNetwork(ctx context.Context, siteNetwork, proxyContainer string) error {
+	if proxyContainer == "" { proxyContainer = DefaultProxyContainer }
+	if err := s.EnsureSiteNetwork(ctx, siteNetwork); err != nil { return err }
+	if err := s.cli.NetworkConnect(ctx, siteNetwork, proxyContainer, nil); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") { return nil }
+		return fmt.Errorf("failed to connect proxy %s to site network %s: %w", proxyContainer, siteNetwork, err)
+	}
+	return nil
+}
+
+// DisconnectProxyFromSiteNetwork detaches the ingress proxy during teardown.
+func (s *DockerService) DisconnectProxyFromSiteNetwork(ctx context.Context, siteNetwork, proxyContainer string) error {
+	if proxyContainer == "" { proxyContainer = DefaultProxyContainer }
+	if err := s.cli.NetworkDisconnect(ctx, siteNetwork, proxyContainer, true); err != nil {
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "not connected") || strings.Contains(errText, "not found") { return nil }
+		return fmt.Errorf("failed to disconnect proxy %s from site network %s: %w", proxyContainer, siteNetwork, err)
+	}
+	return nil
+}
+
+// RemoveSiteNetwork removes a managed tenant network after workload teardown.
+func (s *DockerService) RemoveSiteNetwork(ctx context.Context, siteNetwork string) error {
+	if siteNetwork == "" { return errors.New("site network name cannot be empty") }
+	list, err := s.cli.NetworkList(ctx, network.ListOptions{Filters: filters.NewArgs(filters.Arg("name", siteNetwork))})
+	if err != nil { return fmt.Errorf("failed to list docker networks: %w", err) }
+	for _, n := range list {
+		if n.Name != siteNetwork { continue }
+		if n.Labels["com.panel.managed"] != "true" || n.Labels["com.panel.scope"] != "site" { return fmt.Errorf("refusing to remove unmanaged network %s", siteNetwork) }
+		if err := s.cli.NetworkRemove(ctx, n.ID); err != nil { return fmt.Errorf("failed to remove site network %s: %w", siteNetwork, err) }
+	}
 	return nil
 }
 
@@ -225,10 +245,15 @@ func (s *DockerService) BringUpComposeProject(ctx context.Context, siteDir strin
 
 		sendEvent(StageInitializing, fmt.Sprintf("Beginning workload deployment for %s", filepath.Base(siteDir)), 5, false)
 
-		// Step 1: Ensure bridge network
-		sendEvent(StageNetworkCheck, fmt.Sprintf("Verifying internal bridge network '%s'", s.networkName), 15, false)
-		if err := s.EnsureInternalNetwork(ctx); err != nil {
+		// Step 1: Ensure the dedicated tenant network.
+		siteNetwork := SiteNetworkName(filepath.Base(siteDir))
+		sendEvent(StageNetworkCheck, fmt.Sprintf("Verifying isolated site network '%s'", siteNetwork), 15, false)
+		if err := s.EnsureSiteNetwork(ctx, siteNetwork); err != nil {
 			sendEvent(StageFailed, fmt.Sprintf("Network provisioning failed: %v", err), 15, true)
+			return
+		}
+		if err := s.ConnectProxyToSiteNetwork(ctx, siteNetwork, os.Getenv("PANEL_PROXY_CONTAINER")); err != nil {
+			sendEvent(StageFailed, fmt.Sprintf("Proxy network attachment failed: %v", err), 35, true)
 			return
 		}
 
@@ -508,6 +533,13 @@ func (s *DockerService) TeardownSite(ctx context.Context, siteDir string) error 
 	cmd := exec.CommandContext(ctx, "docker", "compose", "--project-directory", siteDir, "down", "--volumes", "--remove-orphans")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to teardown site: %s (%w)", string(out), err)
+	}
+	networkName := SiteNetworkName(filepath.Base(siteDir))
+	if err := s.DisconnectProxyFromSiteNetwork(ctx, networkName, os.Getenv("PANEL_PROXY_CONTAINER")); err != nil {
+		return err
+	}
+	if err := s.RemoveSiteNetwork(ctx, networkName); err != nil {
+		return err
 	}
 	return nil
 }

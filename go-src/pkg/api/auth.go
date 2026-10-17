@@ -2,28 +2,68 @@ package api
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
 	// Default JWT HMAC Secret Key (overridden by JWT_SECRET env var in production)
-	jwtSecretKey = []byte("1panel-super-secret-production-signing-key-32b")
+	jwtSecretKey []byte
+	refreshStore = struct { sync.Mutex; tokens map[[32]byte]time.Time }{tokens: make(map[[32]byte]time.Time)}
 )
 
 // SetJWTSecret overrides the signing secret.
-func SetJWTSecret(secret string) {
-	jwtSecretKey = []byte(secret)
+func SetJWTSecret(secret string) { jwtSecretKey = []byte(secret) }
+
+func init() { if s := strings.TrimSpace(os.Getenv("PANEL_JWT_SECRET")); s != "" { jwtSecretKey = []byte(s) } }
+
+func AuthenticateIdentity(username, password, totpCode string) (string,string,error) {
+	if persistentAuth() != nil {
+		u,err:=authenticatePersistent(username,password,totpCode);if err!=nil{return "","",err};return u.ID,u.Role,nil
+	}
+	expectedUser := strings.TrimSpace(os.Getenv("PANEL_ADMIN_USERNAME"))
+	hash := strings.TrimSpace(os.Getenv("PANEL_ADMIN_PASSWORD_BCRYPT"))
+	secret := strings.TrimSpace(os.Getenv("PANEL_TOTP_SECRET"))
+	if expectedUser == "" || hash == "" || secret == "" { return "","",errors.New("panel administrator credentials are not configured") }
+	if !hmac.Equal([]byte(username), []byte(expectedUser)) || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil || !VerifyTOTP(secret, totpCode, 30, 1) { return "","",errors.New("invalid credentials") }
+	return username,"admin",nil
 }
+
+func RefreshToken(token string) (*TokenPair, error) {
+	claims, err := VerifyJWT(token); if err != nil || claims.TokenType != "refresh" { return nil, errors.New("invalid refresh token") }
+	if s := persistentAuth(); s != nil {
+		session, err := s.GetSession(claims.JTI)
+		if err != nil || session.UserID != claims.Subject || session.RevokedAt != nil || time.Now().After(session.ExpiresAt) {
+			return nil, errors.New("refresh token has been revoked or expired")
+		}
+		key := sha256.Sum256([]byte(token))
+		if !hmac.Equal([]byte(session.RefreshHash), key[:]) { return nil, errors.New("refresh token has been revoked or expired") }
+		now := time.Now().UTC()
+		session.RevokedAt = &now
+		if err := s.PutSession(*session); err != nil { return nil, errors.New("failed to rotate refresh session") }
+		return GenerateTokenPair(claims.Subject, claims.Role)
+	}
+	key := sha256.Sum256([]byte(token)); refreshStore.Lock(); expiry, ok := refreshStore.tokens[key]; if ok { delete(refreshStore.tokens, key) }; refreshStore.Unlock()
+	if !ok || time.Now().After(expiry) { return nil, errors.New("refresh token has been revoked or expired") }
+	return GenerateTokenPair(claims.Subject, claims.Role)
+}
+
+func RevokeRefreshToken(token string) { refreshStore.Lock(); delete(refreshStore.tokens, sha256.Sum256([]byte(token))); refreshStore.Unlock() }
 
 // TokenPair encapsulates short-lived access and refresh tokens.
 type TokenPair struct {
@@ -34,23 +74,33 @@ type TokenPair struct {
 }
 
 // JWTClaims holds standard and custom token payload fields.
+type loginIdentityKey struct{}
+var LoginIdentityKey loginIdentityKey
+
 type JWTClaims struct {
 	Subject   string `json:"sub"`
 	Role      string `json:"role"`
 	TokenType string `json:"type"` // "access" | "refresh"
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
+	JTI       string `json:"jti"`
 }
 
 // GenerateTokenPair issues a 15-minute access token and a 7-day refresh token.
 func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
+	if len(jwtSecretKey) < 32 { return nil, errors.New("PANEL_JWT_SECRET must be configured with at least 32 bytes") }
 	now := time.Now().UTC()
+	accessJTI, err := newTokenID()
+	if err != nil { return nil, err }
+	refreshJTI, err := newTokenID()
+	if err != nil { return nil, err }
 
 	// Access Token: 15 minutes validity
 	accessClaims := JWTClaims{
 		Subject:   userID,
 		Role:      role,
 		TokenType: "access",
+		JTI:       accessJTI,
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(15 * time.Minute).Unix(),
 	}
@@ -64,6 +114,7 @@ func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 		Subject:   userID,
 		Role:      role,
 		TokenType: "refresh",
+		JTI:       refreshJTI,
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(7 * 24 * time.Hour).Unix(),
 	}
@@ -72,16 +123,25 @@ func GenerateTokenPair(userID string, role string) (*TokenPair, error) {
 		return nil, fmt.Errorf("failed to sign refresh token: %w", err)
 	}
 
-	return &TokenPair{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresIn:    900,
-		TokenType:    "Bearer",
-	}, nil
+	pair := &TokenPair{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: 900, TokenType: "Bearer"}
+	if persistentAuth() != nil {
+		if err := persistRefreshSession(userID, refreshToken, now.Add(7*24*time.Hour)); err != nil { return nil, fmt.Errorf("failed to persist refresh session: %w", err) }
+	} else {
+		refreshStore.Lock(); refreshStore.tokens[sha256.Sum256([]byte(refreshToken))] = now.Add(7 * 24 * time.Hour); refreshStore.Unlock()
+	}
+	return pair, nil
+}
+
+
+func newTokenID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil { return "", fmt.Errorf("failed to generate token id: %w", err) }
+	return hex.EncodeToString(buf), nil
 }
 
 // signJWT signs claims using HMAC-SHA256.
 func signJWT(claims JWTClaims) (string, error) {
+	if len(jwtSecretKey) < 32 { return "", errors.New("PANEL_JWT_SECRET must be configured with at least 32 bytes") }
 	header := map[string]string{
 		"alg": "HS256",
 		"typ": "JWT",
@@ -109,6 +169,7 @@ func signJWT(claims JWTClaims) (string, error) {
 
 // VerifyJWT validates the token signature and expiration, returning parsed claims.
 func VerifyJWT(tokenString string) (*JWTClaims, error) {
+	if len(jwtSecretKey) < 32 { return nil, errors.New("jwt signing secret is not configured") }
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("malformed jwt: expected 3 dot-separated parts")
@@ -139,7 +200,7 @@ func VerifyJWT(tokenString string) (*JWTClaims, error) {
 	}
 
 	// Verify expiration
-	if time.Now().UTC().Unix() > claims.ExpiresAt {
+	if claims.ExpiresAt <= time.Now().UTC().Unix() || claims.IssuedAt > time.Now().UTC().Add(60*time.Second).Unix() {
 		return nil, errors.New("jwt token has expired")
 	}
 

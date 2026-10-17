@@ -16,6 +16,14 @@ func NewGenerator(dryRun bool) *Generator {
 	return &Generator{dryRun: dryRun}
 }
 
+// Apply runtime ownership to mounted application paths while keeping control-plane manifests root-owned.
+func applyRuntimeOwnership(cfg *SiteConfig, siteDir string, subDirs []string) error {
+	if os.Geteuid()!=0 { return nil }
+	if err:=os.Chmod(siteDir,0751);err!=nil{return err}
+	for _,dir:=range subDirs{if err:=os.Chown(dir,cfg.Security.UID,cfg.Security.GID);err!=nil{return fmt.Errorf("chown %s: %w",dir,err)};if err:=os.Chmod(dir,0750);err!=nil{return err}}
+	return nil
+}
+
 // GenerateSite performs full validation, directory creation, atomic manifest writes, and starter files.
 func (g *Generator) GenerateSite(cfg *SiteConfig) (*GenerationResult, error) {
 	// Step 1: Strict input validation
@@ -85,6 +93,8 @@ func (g *Generator) GenerateSite(cfg *SiteConfig) (*GenerationResult, error) {
 			// Non-fatal if proxy dir is in a different location, but logged
 		}
 	}
+
+	if !g.dryRun { if err:=applyRuntimeOwnership(cfg,siteDir,subDirs);err!=nil{rollback();return nil,fmt.Errorf("failed applying runtime ownership: %w",err)} }
 
 	// Step 4: Render Manifests
 	var envContent, composeContent string

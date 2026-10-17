@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { SiteConfigState, defaultSiteConfig, sanitizeSlug } from '@/lib/generator-client';
+import { api } from '@/lib/api-client';
 import {
   X,
   Server,
@@ -45,43 +46,35 @@ export const CreateSiteModal: React.FC<CreateSiteModalProps> = ({ isOpen, onClos
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-
     const cleanDomain = domain.trim().toLowerCase();
-    if (!cleanDomain) {
-      setErrorMsg('Domain name is required (e.g. app.example.com)');
-      return;
+    if (!cleanDomain) { setErrorMsg('Domain name is required'); return; }
+    if (!/^([a-zA-Z0-9]([a-zA-Z0-9\\-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}$/.test(cleanDomain)) {
+      setErrorMsg('Domain must match RFC 1123 FQDN syntax'); return;
     }
-    if (!/^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(cleanDomain)) {
-      setErrorMsg('Domain must match RFC 1123 FQDN syntax without path characters');
-      return;
-    }
-
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-
-      const newSite = {
-        id: Date.now().toString(),
-        domain: cleanDomain,
-        type: siteType,
-        runtimeName: siteType === 'tomcat' ? 'Tomcat 10.1 / Temurin 21' : `Python ${pythonVersion.split('-')[0]} / ${serverType === 'uvicorn' ? 'FastAPI' : 'WSGI'}`,
-        status: 'running',
-        ssl: enableSSL ? 'active' : 'disabled',
-        cpuPercent: 4.2,
-        cpuLimit: `${cpuLimit.toFixed(1)} cores`,
-        memoryUsedMB: siteType === 'tomcat' ? 384 : 142,
-        memoryLimitMB: ramLimitMB,
-        port: siteType === 'tomcat' ? 8080 : 8000,
-        containerName: `site_${siteType}_${sanitizeSlug(cleanDomain)}`,
-        createdAt: 'Just now',
-      };
-
-      onCreated(newSite);
+    try {
+      const port = siteType === 'tomcat' ? 8080 : 8000;
+      const result:any = await api.createSite({
+        domain: cleanDomain, app_type: siteType, port,
+        ram_limit: `${ramLimitMB}M`, cpu_limit: cpuLimit.toFixed(1),
+        tomcat_version: tomcatVersion, jvm_xms: jvmXms, jvm_xmx: jvmXmx,
+        python_version: pythonVersion, app_entry: appEntry, server_type: serverType, workers,
+        enable_ssl: enableSSL,
+      });
+      onCreated({
+        id: result.domain, domain: result.domain, type: siteType,
+        runtimeName: siteType === 'tomcat' ? 'Tomcat workload' : `Python ${pythonVersion.split('-')[0]} / ${serverType}`,
+        status: 'running', ssl: enableSSL ? 'active' : 'disabled',
+        cpuPercent: 0, cpuLimit: `${cpuLimit.toFixed(1)} cores`, memoryUsedMB: 0,
+        memoryLimitMB: ramLimitMB, port, containerName: result.container_name || `site_${siteType}_${sanitizeSlug(cleanDomain)}`, createdAt: 'Just now',
+      });
       onClose();
-    }, 600);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Site provisioning failed');
+    } finally { setIsSubmitting(false); }
   };
 
   return (
@@ -164,7 +157,7 @@ export const CreateSiteModal: React.FC<CreateSiteModalProps> = ({ isOpen, onClos
             />
             <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1 font-mono">
               <span>Container: site_{siteType}_{domain ? sanitizeSlug(domain) : 'domain'}</span>
-              <span>Network: panel-network</span>
+              <span>Network: dedicated per-site network</span>
             </div>
           </div>
 

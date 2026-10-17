@@ -2,8 +2,6 @@ package system
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"

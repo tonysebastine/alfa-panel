@@ -13,6 +13,7 @@ type ServerConfig struct {
 
 // NewRouter constructs the complete REST API routing tree with security middleware.
 func NewRouter() http.Handler {
+	ConfigurePersistentAuthFromEnv()
 	mux := http.NewServeMux()
 
 	// Rate limiters
@@ -20,7 +21,10 @@ func NewRouter() http.Handler {
 	generalRateLimiter := NewRateLimiter(300, 50) // 300 req/min for API
 
 	// Public routes
-	mux.Handle("/api/v1/auth/login", loginRateLimiter.Middleware(http.HandlerFunc(HandleLogin)))
+	mux.Handle("/api/v1/auth/login", loginRateLimiter.Middleware(SecureLoginMiddleware(http.HandlerFunc(HandleLogin))))
+	mux.Handle("/api/v1/auth/refresh", loginRateLimiter.Middleware(http.HandlerFunc(HandleRefresh)))
+	mux.Handle("/api/v1/auth/logout", loginRateLimiter.Middleware(JWTMiddleware(http.HandlerFunc(HandleLogout))))
+	mux.Handle("/api/v1/auth/credentials", loginRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(http.HandlerFunc(HandleCredentialChange)))))
 
 	// Sites router dispatching paths under /api/v1/sites
 	sitesHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -51,12 +55,25 @@ func NewRouter() http.Handler {
 			HandleSiteAction("restart")(w, r)
 			return
 		}
+		if strings.HasSuffix(path, "/ssl") { HandleSSLIssue(w,r); return }
+		if strings.HasSuffix(path, "/delete") {
+			HandleDeleteSite(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/backups/create") {
+			HandleCreateBackup(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/backups/restore") {
+			HandleRestoreBackup(w, r)
+			return
+		}
 		if strings.HasSuffix(path, "/logs") {
 			HandleSiteLogs(w, r)
 			return
 		}
 		if strings.HasSuffix(path, "/exec") {
-			HandleSiteExec(w, r)
+			writeJSONError(w, http.StatusForbidden, "arbitrary container execution is disabled; use typed site operations")
 			return
 		}
 
@@ -83,10 +100,23 @@ func NewRouter() http.Handler {
 		http.NotFound(w, r)
 	})
 
+	usersHandler:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+		if r.URL.Path=="/api/v1/users" { HandleUsers(w,r); return }
+		if strings.HasPrefix(r.URL.Path,"/api/v1/users/") { HandleDeleteUser(w,r); return }
+		http.NotFound(w,r)
+	})
+	mux.Handle("/api/v1/users",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermUsersManage,AuditMiddleware(usersHandler)))))
+	mux.Handle("/api/v1/users/",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermUsersManage,AuditMiddleware(usersHandler)))))
+
+	mux.Handle("/api/v1/audit",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermAuditRead,AuditMiddleware(http.HandlerFunc(HandleAudit))))))
+
+	mux.Handle("/api/v1/system/metrics",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleSystemMetrics)))))
+	mux.Handle("/api/v1/system/firewall",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleFirewall)))))
+	mux.Handle("/api/v1/system/firewall/deny",generalRateLimiter.Middleware(JWTMiddleware(RequirePermission(PermSystemManage,http.HandlerFunc(HandleFirewall)))))
 	// Wrap sites with JWT protection and general rate limiter
-	mux.Handle("/api/v1/sites", generalRateLimiter.Middleware(JWTMiddleware(sitesHandler)))
-	mux.Handle("/api/v1/sites/", generalRateLimiter.Middleware(JWTMiddleware(sitesHandler)))
+	mux.Handle("/api/v1/sites", generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
+	mux.Handle("/api/v1/sites/", generalRateLimiter.Middleware(JWTMiddleware(AuditMiddleware(RequireSitePermission(sitesHandler)))))
 
 	// Wrap all routes with security headers
-	return SecurityHeadersMiddleware(mux)
+	return SecurityHeadersMiddleware(CORSMiddleware(mux))
 }

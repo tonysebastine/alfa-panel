@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Search,
   Filter,
@@ -22,6 +22,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { CreateSiteModal } from './CreateSiteModal';
+import { api } from '@/lib/api-client';
 
 export interface SiteItem {
   id: string;
@@ -39,69 +40,6 @@ export interface SiteItem {
   createdAt: string;
 }
 
-const initialSites: SiteItem[] = [
-  {
-    id: '1',
-    domain: 'api.production.example.com',
-    type: 'tomcat',
-    runtimeName: 'Tomcat 10.1 / Temurin 21',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 14.2,
-    cpuLimit: '2.0 cores',
-    memoryUsedMB: 482,
-    memoryLimitMB: 2048,
-    port: 8080,
-    containerName: 'site_tomcat_api_production_example_com',
-    createdAt: '2 days ago',
-  },
-  {
-    id: '2',
-    domain: 'fastapi.corp.internal',
-    type: 'python',
-    runtimeName: 'Python 3.12 / FastAPI (Uvicorn)',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 5.8,
-    cpuLimit: '1.5 cores',
-    memoryUsedMB: 168,
-    memoryLimitMB: 1024,
-    port: 8000,
-    containerName: 'site_python_fastapi_corp_internal',
-    createdAt: '5 days ago',
-  },
-  {
-    id: '3',
-    domain: 'auth.legacy.internal',
-    type: 'tomcat',
-    runtimeName: 'Tomcat 9.0 / Temurin 11',
-    status: 'stopped',
-    ssl: 'expiring',
-    cpuPercent: 0.0,
-    cpuLimit: '1.0 cores',
-    memoryUsedMB: 0,
-    memoryLimitMB: 1536,
-    port: 8080,
-    containerName: 'site_tomcat_auth_legacy_internal',
-    createdAt: '2 weeks ago',
-  },
-  {
-    id: '4',
-    domain: 'analytics.worker.internal',
-    type: 'python',
-    runtimeName: 'Python 3.11 / Gunicorn (WSGI)',
-    status: 'running',
-    ssl: 'active',
-    cpuPercent: 8.4,
-    cpuLimit: '1.5 cores',
-    memoryUsedMB: 215,
-    memoryLimitMB: 1024,
-    port: 8000,
-    containerName: 'site_python_analytics_worker_internal',
-    createdAt: '3 weeks ago',
-  },
-];
-
 interface SitesManagementViewProps {
   onSelectSite?: (site: SiteItem) => void;
   onOpenTerminal?: (site: SiteItem) => void;
@@ -113,7 +51,9 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
   onOpenTerminal,
   onOpenFiles,
 }) => {
-  const [sites, setSites] = useState<SiteItem[]>(initialSites);
+  const [sites, setSites] = useState<SiteItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [runtimeFilter, setRuntimeFilter] = useState<'all' | 'tomcat' | 'python'>('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -125,40 +65,58 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
     setTimeout(() => setActionNotice(null), 3500);
   };
 
-  const handleToggleState = (id: string) => {
-    setSites(prev =>
-      prev.map(s => {
-        if (s.id === id) {
-          const nextStatus = s.status === 'running' ? 'stopped' : 'running';
-          showNotice(`Site '${s.domain}' set to ${nextStatus.toUpperCase()}`);
-          return {
-            ...s,
-            status: nextStatus,
-            cpuPercent: nextStatus === 'running' ? 6.5 : 0.0,
-            memoryUsedMB: nextStatus === 'running' ? (s.type === 'tomcat' ? 380 : 140) : 0,
-          };
-        }
-        return s;
-      })
-    );
+  useEffect(() => {
+    let cancelled = false;
+    api.listSites().then(result => {
+      if (cancelled) return;
+      setSites((result.sites || []).map((s: any) => ({
+        id: s.container_id || s.domain,
+        domain: s.domain,
+        type: s.container_name?.startsWith('site_python_') ? 'python' : 'tomcat',
+        runtimeName: s.container_name?.startsWith('site_python_') ? 'Python workload' : 'Tomcat workload',
+        status: s.status === 'running' ? 'running' : 'stopped',
+        ssl: 'active',
+        cpuPercent: Number(s.cpu_percent || 0),
+        cpuLimit: 'managed',
+        memoryUsedMB: Number(s.memory_usage_mb || 0),
+        memoryLimitMB: Number(s.memory_limit_mb || 0),
+        port: s.container_name?.startsWith('site_python_') ? 8000 : 8080,
+        containerName: s.container_name || '',
+        createdAt: s.started_at ? new Date(s.started_at).toLocaleDateString() : 'unknown',
+      })));
+      setLoadError(null);
+    }).catch(err => { if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Unable to load sites'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleToggleState = async (id: string) => {
+    const target = sites.find(s => s.id === id); if (!target) return;
+    const action = target.status === 'running' ? 'stop' : 'start';
+    try { await api.siteAction(target.domain, action); showNotice(`Site '${target.domain}' set to ${action.toUpperCase()}`); setSites(prev=>prev.map(s=>s.id===id?{...s,status:action==='start'?'running':'stopped'}:s)); }
+    catch (err) { showNotice(err instanceof Error ? err.message : 'Site action failed'); }
   };
 
-  const handleRestartSite = (id: string) => {
-    const target = sites.find(s => s.id === id);
-    if (!target) return;
-    showNotice(`Graceful restart triggered for '${target.domain}'`);
+  const handleRestartSite = async (id: string) => {
+    const target = sites.find(s => s.id === id); if (!target) return;
+    try { await api.siteAction(target.domain,'restart'); showNotice(`Graceful restart triggered for '${target.domain}'`); }
+    catch (err) { showNotice(err instanceof Error ? err.message : 'Restart failed'); }
   };
 
-  const handleDeleteSite = (id: string) => {
-    const target = sites.find(s => s.id === id);
-    if (!target) return;
-    setSites(prev => prev.filter(s => s.id !== id));
-    showNotice(`Site '${target.domain}' and /opt/panel/apps/sites/${target.domain}/ purged.`);
+  const handleDeleteSite = async (id: string) => {
+    const target = sites.find(s => s.id === id); if (!target) return;
+    const confirmDomain = window.prompt(`Type ${target.domain} to confirm deletion. Leave purge unchecked by default.`);
+    if (confirmDomain !== target.domain) { showNotice('Deletion cancelled: exact domain confirmation required.'); return; }
+    try {
+      await api.deleteSite(target.domain, false);
+      setSites(prev => prev.filter(s => s.id !== id));
+      showNotice(`Site '${target.domain}' deleted; data directory retained for recovery.`);
+    } catch (err) { showNotice(err instanceof Error ? err.message : 'Deletion failed'); }
   };
 
   const handleCreated = (newSite: SiteItem) => {
     setSites(prev => [newSite, ...prev]);
-    showNotice(`Site '${newSite.domain}' provisioned with rootless security on panel-network`);
+    showNotice(`Site '${newSite.domain}' provisioned with rootless security on an isolated site network`);
   };
 
   // Filtered sites
@@ -280,6 +238,9 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
           </button>
         </div>
       </div>
+
+      {loadError && <div className="rounded-xl border border-rose-900 bg-rose-950/30 p-3 text-sm text-rose-300">{loadError}</div>}
+      {loading && <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-400">Loading live site inventory…</div>}
 
       {/* Sites Table */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
@@ -416,7 +377,7 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
                         Port: <strong className="text-emerald-400">{site.port}</strong>
                       </div>
                       <div className="text-[10px] text-slate-500">
-                        Bridge: panel-network
+                        Dedicated site network
                       </div>
                     </td>
 
@@ -484,12 +445,12 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
                             <button
                               onClick={() => {
                                 setActiveDropdown(null);
-                                onOpenTerminal?.(site);
+                                onSelectSite?.(site);
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
                             >
                               <Terminal className="w-3.5 h-3.5 text-purple-400" />
-                              <span>Open Terminal (Exec)</span>
+                              <span>Logs & Monitoring</span>
                             </button>
 
                             <div className="h-px bg-slate-800 my-1" />

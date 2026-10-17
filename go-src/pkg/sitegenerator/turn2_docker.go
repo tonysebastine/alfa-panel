@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
@@ -84,10 +85,10 @@ func (o *DockerOrchestrator) Close() error {
 }
 
 // EnsureNetwork creates panel-network (bridge) if it does not already exist.
+func proxyContainerName() string { if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_CONTAINER")); v!="" { return v }; return DefaultProxyContainer }
+
 func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName string) error {
-	if networkName == "" {
-		networkName = "panel-network"
-	}
+	if networkName == "" { return errors.New("network name is required") }
 
 	netList, err := o.cli.NetworkList(ctx, network.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", networkName)),
@@ -107,7 +108,8 @@ func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName stri
 		Attachable: true,
 		Internal:   false,
 		Labels: map[string]string{
-			"managed_by": "1panel-agent",
+			"com.panel.managed": "true",
+			"com.panel.scope": "site",
 		},
 		Options: map[string]string{
 			"com.docker.network.bridge.enable_icc": "true",
@@ -122,9 +124,28 @@ func (o *DockerOrchestrator) EnsureNetwork(ctx context.Context, networkName stri
 
 // ResolveContainerName gets deterministic container name for domain.
 func ResolveContainerName(domain string) string {
-	slug := strings.ReplaceAll(domain, ".", "_")
-	slug = strings.ReplaceAll(slug, "-", "_")
-	return slug
+	return SanitizeDomainToSlug(domain)
+}
+
+func siteContainerNames(domain string) map[string]bool {
+	slug := ResolveContainerName(domain)
+	return map[string]bool{
+		fmt.Sprintf("site_tomcat_%s", slug): true,
+		fmt.Sprintf("site_python_%s", slug): true,
+	}
+}
+
+func (o *DockerOrchestrator) findSiteContainer(ctx context.Context, domain string, all bool) (string,string,error) {
+	containers, err := o.cli.ContainerList(ctx, container.ListOptions{All:all})
+	if err != nil { return "","",fmt.Errorf("failed to list containers: %w",err) }
+	names := siteContainerNames(domain)
+	for _, c := range containers {
+		for _, name := range c.Names {
+			n := strings.TrimPrefix(name,"/")
+			if names[n] { return c.ID,n,nil }
+		}
+	}
+	return "","",fmt.Errorf("container not found for domain '%s'",domain)
 }
 
 // StartSite deploys the compose stack: docker compose -f /opt/panel/apps/sites/<domain>/docker-compose.yml up -d
@@ -142,9 +163,13 @@ func (o *DockerOrchestrator) StartSite(ctx context.Context, domain string) error
 		return fmt.Errorf("compose manifest not found at %s: %w", composePath, err)
 	}
 
-	// 1. Ensure external panel-network bridge exists
-	if err := o.EnsureNetwork(ctx, "panel-network"); err != nil {
-		return fmt.Errorf("failed ensuring panel-network: %w", err)
+	// 1. Ensure this tenant has a dedicated network and attach only the ingress proxy.
+	networkName := SiteNetworkName(cleanDomain)
+	if err := o.EnsureNetwork(ctx, networkName); err != nil {
+		return fmt.Errorf("failed ensuring site network: %w", err)
+	}
+	if err := o.cli.NetworkConnect(ctx, networkName, proxyContainerName(), nil); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		return fmt.Errorf("failed attaching proxy to site network: %w", err)
 	}
 
 	// 2. Execute docker compose up -d
@@ -191,6 +216,33 @@ func (o *DockerOrchestrator) StopSite(ctx context.Context, domain string) error 
 	return nil
 }
 
+func (o *DockerOrchestrator) EnsureSiteIngress(ctx context.Context, cfg *SiteConfig) error {
+	if err:=o.EnsureNetwork(ctx,cfg.NetworkName);err!=nil{return err}
+	if err:=o.cli.NetworkConnect(ctx,cfg.NetworkName,proxyContainerName(),nil);err!=nil&&!strings.Contains(strings.ToLower(err.Error()),"already exists"){return err}
+	pm:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli)
+	res,err:=pm.ApplyAndReload(ctx,BuildVhostConfig(cfg));if err!=nil{return err};if !res.Success{return fmt.Errorf("proxy reload failed: %s",res.Output)}
+	return nil
+}
+
+// DeleteSite performs a typed destructive lifecycle operation. It never accepts shell commands.
+func (o *DockerOrchestrator) DeleteSite(ctx context.Context, domain string, purge bool) error {
+	cleanDomain, err := SanitizeDomain(domain); if err != nil { return err }
+	siteDir := filepath.Join(BaseSitesDir, cleanDomain)
+	composePath := filepath.Join(siteDir, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err != nil { return fmt.Errorf("compose manifest not found at %s: %w", composePath, err) }
+	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composePath, "--env-file", filepath.Join(siteDir, ".env"), "down", "--volumes", "--remove-orphans")
+	cmd.Dir=siteDir
+	if out,err:=cmd.CombinedOutput(); err!=nil{return fmt.Errorf("docker compose down failed: %s (%w)",strings.TrimSpace(string(out)),err)}
+	networkName:=SiteNetworkName(cleanDomain)
+	_ = o.cli.NetworkDisconnect(ctx,networkName,proxyContainerName(),true)
+	if err:=o.cli.NetworkRemove(ctx,networkName);err!=nil && !strings.Contains(strings.ToLower(err.Error()),"not found"){return fmt.Errorf("failed removing site network: %w",err)}
+	if os.Getenv("PANEL_SKIP_PROXY_ACTIVATION")!="true" { proxy:=NewProxyManager(DefaultProxyVhostDir,proxyContainerName(),o.cli);if _,err:=proxy.RemoveVhost(ctx,cleanDomain);err!=nil{return fmt.Errorf("failed removing proxy configuration: %w",err)} }
+	if purge {
+		if err:=os.RemoveAll(siteDir);err!=nil{return fmt.Errorf("failed purging site directory: %w",err)}
+	}
+	return nil
+}
+
 // RestartSite triggers a graceful restart of the site stack.
 func (o *DockerOrchestrator) RestartSite(ctx context.Context, domain string) error {
 	cleanDomain, err := SanitizeDomain(domain)
@@ -227,31 +279,11 @@ func (o *DockerOrchestrator) GetSiteStatus(ctx context.Context, domain string) (
 		Status: "not_found",
 	}
 
-	// Find container matching site slug
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{
-		All: true,
-	})
-	if err != nil {
-		return status, fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	slug := ResolveContainerName(cleanDomain)
+	// Resolve only the exact container name for this tenant.
 	var targetID string
 	var targetName string
-
-	for _, c := range containers {
-		for _, name := range c.Names {
-			trimmedName := strings.TrimPrefix(name, "/")
-			if strings.Contains(trimmedName, slug) {
-				targetID = c.ID
-				targetName = trimmedName
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
+	targetID, targetName, err = o.findSiteContainer(ctx, cleanDomain, true)
+	if err != nil { return status, nil }
 
 	if targetID == "" {
 		return status, nil
@@ -339,26 +371,8 @@ func (o *DockerOrchestrator) StreamLogs(ctx context.Context, domain string) (io.
 		return nil, err
 	}
 
-	slug := ResolveContainerName(cleanDomain)
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{All: true})
+	targetID, _, err := o.findSiteContainer(ctx, cleanDomain, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	var targetID string
-	for _, c := range containers {
-		for _, name := range c.Names {
-			if strings.Contains(name, slug) {
-				targetID = c.ID
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
-
-	if targetID == "" {
 		return nil, fmt.Errorf("no container found for domain '%s'", cleanDomain)
 	}
 
@@ -384,73 +398,23 @@ func (o *DockerOrchestrator) StreamLogs(ctx context.Context, domain string) (io.
 	return pr, nil
 }
 
-// ExecInApp executes commands inside the running container (e.g. pip install -r requirements.txt).
+// InstallPythonDependencies performs one typed, non-root dependency installation.
+// The command is fixed by the agent; callers cannot supply arbitrary arguments.
+func (o *DockerOrchestrator) InstallPythonDependencies(ctx context.Context, domain string) (string,error) {
+	cleanDomain, err := SanitizeDomain(domain); if err != nil { return "",err }
+	targetID, _, err := o.findSiteContainer(ctx, cleanDomain, true); if err != nil { return "",err }
+	execCfg := container.ExecOptions{AttachStdout:true,AttachStderr:true,Cmd:[]string{"python","-m","pip","install","--no-cache-dir","--target","/app/.panel-deps","-r","/app/requirements.txt"}}
+	created, err := o.cli.ContainerExecCreate(ctx,targetID,execCfg); if err != nil { return "",fmt.Errorf("failed to create dependency job: %w",err) }
+	attach, err := o.cli.ContainerExecAttach(ctx,created.ID,container.ExecStartOptions{}); if err != nil { return "",fmt.Errorf("failed to attach dependency job: %w",err) }; defer attach.Close()
+	var stdout,stderr bytes.Buffer; if _,err:=stdcopy.StdCopy(&stdout,&stderr,attach.Reader); err!=nil{return "",err}
+	status,err:=o.cli.ContainerExecInspect(ctx,created.ID); if err!=nil{return "",err}
+	out:=strings.TrimSpace(stdout.String()+"\n"+stderr.String()); if status.ExitCode!=0{return out,fmt.Errorf("dependency installation failed with exit code %d",status.ExitCode)}
+	return out,nil
+}
+
+// ExecInApp is intentionally disabled. Use typed deployment operations instead.
 func (o *DockerOrchestrator) ExecInApp(ctx context.Context, domain string, cmd []string) (string, error) {
-	if len(cmd) == 0 {
-		return "", errors.New("command slice cannot be empty")
-	}
-
-	cleanDomain, err := SanitizeDomain(domain)
-	if err != nil {
-		return "", err
-	}
-
-	slug := ResolveContainerName(cleanDomain)
-	containers, err := o.cli.ContainerList(ctx, container.ListOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	var targetID string
-	for _, c := range containers {
-		for _, name := range c.Names {
-			if strings.Contains(name, slug) {
-				targetID = c.ID
-				break
-			}
-		}
-		if targetID != "" {
-			break
-		}
-	}
-
-	if targetID == "" {
-		return "", fmt.Errorf("running container not found for domain '%s'", cleanDomain)
-	}
-
-	execCfg := container.ExecOptions{
-		AttachStdout: true,
-		AttachStderr: true,
-		Cmd:          cmd,
-	}
-
-	execCreate, err := o.cli.ContainerExecCreate(ctx, targetID, execCfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to create exec: %w", err)
-	}
-
-	attach, err := o.cli.ContainerExecAttach(ctx, execCreate.ID, container.ExecStartOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to attach exec: %w", err)
-	}
-	defer attach.Close()
-
-	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, attach.Reader); err != nil {
-		return "", fmt.Errorf("error demuxing output: %w", err)
-	}
-
-	inspect, err := o.cli.ContainerExecInspect(ctx, execCreate.ID)
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect exec: %w", err)
-	}
-
-	combined := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
-	if inspect.ExitCode != 0 {
-		return combined, fmt.Errorf("exec command exited with code %d: %s", inspect.ExitCode, combined)
-	}
-
-	return combined, nil
+	return "", errors.New("arbitrary container execution is disabled")
 }
 
 // Package-level functions delegating to DefaultDockerOrchestrator if present
@@ -463,6 +427,7 @@ func EnsureNetwork(ctx context.Context, networkName string) error {
 }
 
 func StartSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"start",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
@@ -470,13 +435,21 @@ func StartSite(ctx context.Context, domain string) error {
 }
 
 func StopSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"stop",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
 	return DefaultDockerOrchestrator.StopSite(ctx, domain)
 }
 
+func DeleteSite(ctx context.Context, domain string, purge bool) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"delete",domain,purge); return err }
+	if DefaultDockerOrchestrator == nil { return errors.New("docker orchestrator is not initialized") }
+	return DefaultDockerOrchestrator.DeleteSite(ctx, domain, purge)
+}
+
 func RestartSite(ctx context.Context, domain string) error {
+	if agent.Enabled() { _,err:=agent.Call(ctx,"restart",domain,false); return err }
 	if DefaultDockerOrchestrator == nil {
 		return errors.New("docker orchestrator is not initialized")
 	}
@@ -484,6 +457,7 @@ func RestartSite(ctx context.Context, domain string) error {
 }
 
 func GetSiteStatus(ctx context.Context, domain string) (SiteStatus, error) {
+	if agent.Enabled() { b,err:=agent.Call(ctx,"status",domain,false); var s SiteStatus; if err==nil { err=json.Unmarshal(b,&s) }; return s,err }
 	if DefaultDockerOrchestrator == nil {
 		return SiteStatus{}, errors.New("docker orchestrator is not initialized")
 	}
@@ -491,10 +465,17 @@ func GetSiteStatus(ctx context.Context, domain string) (SiteStatus, error) {
 }
 
 func StreamLogs(ctx context.Context, domain string) (io.ReadCloser, error) {
+	if agent.Enabled() { return agent.Logs(ctx,domain) }
 	if DefaultDockerOrchestrator == nil {
 		return nil, errors.New("docker orchestrator is not initialized")
 	}
 	return DefaultDockerOrchestrator.StreamLogs(ctx, domain)
+}
+
+func InstallPythonDependencies(ctx context.Context, domain string) (string,error) {
+	if agent.Enabled() { b,err:=agent.Call(ctx,"install_deps",domain,false); return string(b),err }
+	if DefaultDockerOrchestrator == nil { return "", errors.New("docker orchestrator is not initialized") }
+	return DefaultDockerOrchestrator.InstallPythonDependencies(ctx, domain)
 }
 
 func ExecInApp(ctx context.Context, domain string, cmd []string) (string, error) {

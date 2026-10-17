@@ -68,12 +68,10 @@ func TestGenerateTomcatSite(t *testing.T) {
 	checks := []string{
 		"no-new-privileges:true",
 		"- ALL",
-		"- NET_BIND_SERVICE",
-		"- CHOWN",
-		"- SETUID",
-		"- SETGID",
 		"user: \"${UID}:${GID}\"",
-		"panel-network",
+		"read_only: true",
+		"cap_add: []",
+		"site-network",
 		"expose:\n      - \"${APP_PORT}\"",
 	}
 
@@ -206,4 +204,28 @@ func TestValidationRejectsInjectionsAndEscapes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSiteNetworkIsolationDefaults(t *testing.T) {
+	cfgA := NewSiteConfig("alpha.example.com", SiteTypeTomcat)
+	cfgB := NewSiteConfig("beta.example.com", SiteTypePython)
+	if cfgA.NetworkName == cfgB.NetworkName { t.Fatal("different sites must never share the default network") }
+	if cfgA.NetworkName != SiteNetworkName(cfgA.Domain) { t.Fatalf("unexpected site network: %s", cfgA.NetworkName) }
+	if !strings.HasPrefix(cfgA.NetworkName, "panel-site-") { t.Fatalf("unexpected network prefix: %s", cfgA.NetworkName) }
+	if !strings.Contains(cfgA.NetworkName, "alpha_example_com") { t.Fatalf("network must be derived from validated domain: %s", cfgA.NetworkName) }
+}
+
+func TestGeneratedComposeUsesExternalSiteNetwork(t *testing.T) {
+	tempBase := t.TempDir()
+	cfg := NewSiteConfig("isolated.example.com", SiteTypeTomcat)
+	cfg.BaseDir = tempBase
+	gen := NewGenerator(false)
+	res, err := gen.GenerateSite(cfg)
+	if err != nil { t.Fatal(err) }
+	data, err := os.ReadFile(res.ComposePath)
+	if err != nil { t.Fatal(err) }
+	s := string(data)
+	expectedNetwork := "name: " + "${NETWORK_NAME}"
+	if !strings.Contains(s, expectedNetwork) || !strings.Contains(s, "external: true") { t.Fatalf("compose must use the pre-created external site network: %s", s) }
+	if strings.Contains(s, "panel-network:") { t.Fatal("shared panel-network must not appear in generated tenant compose") }
 }

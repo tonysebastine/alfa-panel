@@ -44,7 +44,7 @@ func TestRenderVhostWithHTTPS(t *testing.T) {
 	if !strings.Contains(out, "listen 443 ssl http2;") {
 		t.Errorf("Missing listen 443 ssl http2")
 	}
-	if !strings.Contains(out, "ssl_certificate /opt/panel/ssl/api.production.internal/fullchain.pem;") {
+	if !strings.Contains(out, "ssl_certificate /opt/panel/apps/openresty/ssl/api.production.internal/fullchain.pem;") {
 		t.Errorf("Missing fullchain certificate path")
 	}
 	if !strings.Contains(out, "Strict-Transport-Security") {

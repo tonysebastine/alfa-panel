@@ -3,10 +3,12 @@ package sitegenerator
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"math"
 )
 
 var (
@@ -31,7 +33,6 @@ var (
 		"CHOWN":            true,
 		"SETUID":           true,
 		"SETGID":           true,
-		"DAC_OVERRIDE":     true,
 	}
 )
 
@@ -57,10 +58,12 @@ func ValidateConfig(cfg *SiteConfig) error {
 		return errors.New("base_dir contains forbidden path traversal sequence '..'")
 	}
 
-	// 3. Port bounds
-	if cfg.Port < 1 || cfg.Port > 65535 {
-		return fmt.Errorf("internal port must be between 1 and 65535, got %d", cfg.Port)
-	}
+	// 3. Port bounds and runtime compatibility.
+	if cfg.Port < 1024 || cfg.Port > 65535 { return fmt.Errorf("internal port must be between 1024 and 65535, got %d", cfg.Port) }
+	if cfg.Type == SiteTypeTomcat && cfg.Port != 8080 { return fmt.Errorf("Tomcat runtime currently supports internal port 8080 only, got %d", cfg.Port) }
+
+	if cfg.NetworkName==""{cfg.NetworkName=SiteNetworkName(cfg.Domain)}
+	if cfg.NetworkName!=SiteNetworkName(cfg.Domain){return fmt.Errorf("network_name must match deterministic tenant network")}
 
 	// 4. Security Profile
 	if err := ValidateSecurityProfile(&cfg.Security); err != nil {
@@ -92,7 +95,20 @@ func ValidateConfig(cfg *SiteConfig) error {
 		return fmt.Errorf("unsupported site type: %s (must be 'tomcat' or 'python')", cfg.Type)
 	}
 
-	// 7. Environment variable validation
+	if strings.EqualFold(os.Getenv("PANEL_REQUIRE_IMAGE_DIGEST"),"true") {
+	images:=[]string{}
+	if cfg.Type==SiteTypeTomcat&&cfg.Tomcat!=nil{images=append(images,cfg.Tomcat.Image)}
+	if cfg.Type==SiteTypePython&&cfg.Python!=nil{images=append(images,cfg.Python.Image)}
+	for _,image:=range images{if !strings.Contains(image,"@sha256:"){return fmt.Errorf("production image policy requires digest-pinned image: %s",image)}}
+}
+// 7. Cross-field resource validation.
+	if cfg.Type == SiteTypeTomcat {
+		mem,err:=parseMemoryBytes(cfg.Resources.MemoryLimit);if err!=nil{return fmt.Errorf("invalid memory limit: %w",err)}
+		heap,err:=parseMemoryBytes(cfg.Tomcat.MaxHeap);if err!=nil{return fmt.Errorf("invalid Tomcat max heap: %w",err)}
+		if heap+256*1024*1024>mem{return fmt.Errorf("Tomcat max heap %s plus runtime overhead exceeds memory limit %s",cfg.Tomcat.MaxHeap,cfg.Resources.MemoryLimit)}
+	}
+
+// 7. Environment variable validation
 	for k := range cfg.EnvVars {
 		if strings.ContainsAny(k, " \t\n\r=:") {
 			return fmt.Errorf("invalid environment variable key '%s'", k)
@@ -138,6 +154,10 @@ func ValidateSecurityProfile(sec *SecurityProfile) error {
 	}
 	if !hasDropAll {
 		return errors.New("security profile must include 'ALL' in drop_caps")
+	}
+
+	if !sec.ReadOnlyRootfs {
+		return errors.New("security profile must enable read-only root filesystem")
 	}
 
 	for _, cap := range sec.AddCaps {
@@ -213,6 +233,9 @@ func ValidateTomcatConfig(t *TomcatConfig) error {
 
 // ValidatePythonConfig validates WSGI/ASGI runner and entrypoint against RCE.
 func ValidatePythonConfig(p *PythonConfig) error {
+	if p.Workers < 1 || p.Workers > 32 { return fmt.Errorf("python workers must be between 1 and 32, got %d", p.Workers) }
+	if p.Threads < 1 || p.Threads > 64 { return fmt.Errorf("python threads must be between 1 and 64, got %d", p.Threads) }
+
 	if p.Image == "" {
 		return errors.New("python base image cannot be empty")
 	}
@@ -236,4 +259,13 @@ func ValidatePythonConfig(p *PythonConfig) error {
 	}
 
 	return nil
+}
+
+func parseMemoryBytes(value string)(int64,error){
+	v:=strings.TrimSpace(strings.ToLower(value));if v==""{return 0,errors.New("memory value is empty")}
+	mult:=int64(1);num:=v
+	switch v[len(v)-1]{case 'k':mult=1024;num=v[:len(v)-1];case 'm':mult=1024*1024;num=v[:len(v)-1];case 'g':mult=1024*1024*1024;num=v[:len(v)-1];default:}
+	f,err:=strconv.ParseFloat(num,64);if err!=nil||f<=0{return 0,fmt.Errorf("invalid memory value %q",value)}
+	if f>float64(math.MaxInt64)/float64(mult){return 0,errors.New("memory value is too large")}
+	return int64(f*float64(mult)),nil
 }

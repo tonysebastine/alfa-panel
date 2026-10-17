@@ -114,9 +114,12 @@ services:
     cap_drop:
       {{range .Security.DropCaps}}- {{.}}
       {{end}}
-    cap_add:
-      {{range .Security.AddCaps}}- {{.}}
-      {{end}}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /usr/local/tomcat/temp:rw,nosuid,nodev,size=128m
+      - /usr/local/tomcat/work:rw,nosuid,nodev,size=256m
+    cap_add: []
     
     environment:
       - CATALINA_OPTS=${CATALINA_OPTS}
@@ -135,9 +138,9 @@ services:
         limits:
           cpus: '${CPU_LIMIT}'
           memory: '${MEMORY_LIMIT}'
-          pids: ${PIDS_LIMIT}
         reservations:
           memory: '${MEMORY_RESERVATION}'
+    pids_limit: ${PIDS_LIMIT}
     
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/ || exit 1"]
@@ -147,10 +150,10 @@ services:
       start_period: 40s
     
     networks:
-      - ${NETWORK_NAME}
+      - site-network
 
 networks:
-  panel-network:
+  site-network:
     name: ${NETWORK_NAME}
     external: true
 `
@@ -179,9 +182,12 @@ services:
     cap_drop:
       {{range .Security.DropCaps}}- {{.}}
       {{end}}
-    cap_add:
+    {{if .Security.AddCaps}}cap_add:
       {{range .Security.AddCaps}}- {{.}}
-      {{end}}
+      {{end}}{{else}}cap_add: []{{end}}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
     
     environment:
       - PYTHONUNBUFFERED=${PYTHONUNBUFFERED}
@@ -190,6 +196,7 @@ services:
       - WORKERS=${WORKERS}
       - THREADS=${THREADS}
       - APP_MODULE=${APP_MODULE}
+      - PYTHONPATH=/app/.panel-deps
       - TZ=UTC
     
     volumes:
@@ -200,9 +207,6 @@ services:
     {{if eq .Python.Runner "gunicorn"}}
     command: >
       sh -c "
-        if [ -f requirements.txt ]; then
-          pip install --no-cache-dir --user -r requirements.txt;
-        fi &&
         exec gunicorn ${APP_MODULE} \
           --bind 0.0.0.0:${APP_PORT} \
           --workers ${WORKERS} \
@@ -214,15 +218,12 @@ services:
     {{else}}
     command: >
       sh -c "
-        if [ -f requirements.txt ]; then
-          pip install --no-cache-dir --user -r requirements.txt;
-        fi &&
         exec uvicorn ${APP_MODULE} \
           --host 0.0.0.0 \
           --port ${APP_PORT} \
           --workers ${WORKERS} \
           --proxy-headers \
-          --forwarded-allow-ips='*'
+          --forwarded-allow-ips=172.16.0.0/12
       "
     {{end}}
 
@@ -244,10 +245,10 @@ services:
       start_period: 20s
     
     networks:
-      - ${NETWORK_NAME}
+      - site-network
 
 networks:
-  panel-network:
+  site-network:
     name: ${NETWORK_NAME}
     external: true
 `

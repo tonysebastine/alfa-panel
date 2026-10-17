@@ -9,6 +9,7 @@ import (
 )
 
 func TestJWTIssuanceAndVerification(t *testing.T) {
+	SetJWTSecret("01234567890123456789012345678901")
 	pair, err := GenerateTokenPair("admin_user", "admin")
 	if err != nil {
 		t.Fatalf("Failed to generate token pair: %v", err)
@@ -56,9 +57,11 @@ func TestRateLimiter(t *testing.T) {
 
 func TestCreateSiteValidation(t *testing.T) {
 	router := NewRouter()
+	SetJWTSecret("01234567890123456789012345678901")
 
 	// Obtain valid token
-	tokenPair, _ := GenerateTokenPair("admin", "admin")
+	tokenPair, err := GenerateTokenPair("admin", "admin")
+	if err != nil { t.Fatal(err) }
 
 	tests := []struct {
 		name       string

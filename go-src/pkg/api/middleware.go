@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -121,10 +122,10 @@ func JWTMiddleware(next http.Handler) http.Handler {
 		}
 
 		claims, err := VerifyJWT(parts[1])
-		if err != nil {
+		if err != nil || claims.TokenType != "access" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized","message":"` + err.Error() + `"}`))
+			_, _ = w.Write([]byte(`{"error":"unauthorized","message":"invalid or expired access token"}`))
 			return
 		}
 
@@ -148,18 +149,27 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 
 // extractIP obtains the client IP address considering reverse proxy headers.
 func extractIP(r *http.Request) string {
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
+	remote:=r.RemoteAddr;host,_,err:=net.SplitHostPort(remote);if err!=nil{host=remote}
+	if os.Getenv("PANEL_TRUST_PROXY")!="true"{return host}
+	remoteIP:=net.ParseIP(host);if remoteIP==nil{return host}
+	trusted:=false
+	for _,raw:=range strings.Split(os.Getenv("PANEL_TRUSTED_PROXY_CIDRS"),","){
+		_,cidr,err:=net.ParseCIDR(strings.TrimSpace(raw));if err==nil&&cidr.Contains(remoteIP){trusted=true;break}
 	}
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
-		return strings.TrimSpace(realIP)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return r.RemoteAddr
+	if !trusted{return host}
+	if forwarded:=r.Header.Get("X-Forwarded-For");forwarded!=""{parts:=strings.Split(forwarded,",");if ip:=net.ParseIP(strings.TrimSpace(parts[0]));ip!=nil{return ip.String()}}
+	if real:=net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")));real!=nil{return real.String()}
+	return host
 }
+
+func CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+		origin:=strings.TrimSpace(r.Header.Get("Origin"))
+		allowed:=false
+		if origin!="" { for _,v:=range strings.Split(os.Getenv("PANEL_CORS_ORIGINS"),","){if strings.TrimSpace(v)==origin{allowed=true;break}} }
+		if allowed { w.Header().Set("Access-Control-Allow-Origin",origin);w.Header().Set("Vary","Origin");w.Header().Set("Access-Control-Allow-Headers","Authorization, Content-Type");w.Header().Set("Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS") }
+		if r.Method==http.MethodOptions { if allowed {w.WriteHeader(http.StatusNoContent)} else {w.WriteHeader(http.StatusForbidden)};return }
+		next.ServeHTTP(w,r)
+	})
+}
+

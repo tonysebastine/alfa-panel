@@ -1,0 +1,9 @@
+[Unit]
+Description=ALFA-PANEL ACME certificate renewal
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/alfa-panel/bin/panel-agent --renew-acme

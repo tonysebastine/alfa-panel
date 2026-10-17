@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,24 +11,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/panel/panel-agent/pkg/agent"
 	"github.com/panel/panel-agent/pkg/sitegenerator"
 )
 
 // Maximum upload limits
 const (
-	MaxWarUploadSize  = 500 * 1024 * 1024 // 500 MB
-	MaxTextEditSize   = 5 * 1024 * 1024   // 5 MB
+	MaxWarUploadSize = 500 * 1024 * 1024 // 500 MB
+	MaxTextEditSize  = 5 * 1024 * 1024   // 5 MB
 )
 
 // FileNode represents a single filesystem entry in the site directory tree.
 type FileNode struct {
-	Name       string      `json:"name"`
-	Path       string      `json:"path"` // relative to site root
-	IsDir      bool        `json:"is_dir"`
-	Size       int64       `json:"size"`
-	Mode       string      `json:"mode"`
-	ModTime    time.Time   `json:"mod_time"`
-	Children   []*FileNode `json:"children,omitempty"`
+	Name     string      `json:"name"`
+	Path     string      `json:"path"` // relative to site root
+	IsDir    bool        `json:"is_dir"`
+	Size     int64       `json:"size"`
+	Mode     string      `json:"mode"`
+	ModTime  time.Time   `json:"mod_time"`
+	Children []*FileNode `json:"children,omitempty"`
 }
 
 // FileContentPayload represents read/save body for file editor.
@@ -40,16 +40,24 @@ type FileContentPayload struct {
 
 // ResolveSafePath ensures user-supplied path remains strictly confined inside siteDir.
 func ResolveSafePath(siteDir string, userPath string) (string, error) {
-	// Clean and normalize paths
 	cleanSiteDir := filepath.Clean(siteDir)
-	cleanUserPath := filepath.Clean("/" + strings.TrimPrefix(userPath, "/"))
-	targetPath := filepath.Clean(filepath.Join(cleanSiteDir, cleanUserPath))
-
-	// Path traversal containment check
+	raw := strings.TrimSpace(userPath)
+	if raw == "" || strings.ContainsRune(raw, 0) {
+		return "", fmt.Errorf("invalid path")
+	}
+	raw = strings.ReplaceAll(raw, "\\", "/")
+	raw = strings.TrimPrefix(raw, "/")
+	parts := strings.Split(raw, "/")
+	for _, part := range parts {
+		if part == ".." {
+			return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
+		}
+	}
+	cleanUserPath := filepath.Clean(filepath.FromSlash(raw))
+	targetPath := filepath.Join(cleanSiteDir, cleanUserPath)
 	if targetPath != cleanSiteDir && !strings.HasPrefix(targetPath, cleanSiteDir+string(filepath.Separator)) {
 		return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
 	}
-
 	return targetPath, nil
 }
 
@@ -67,6 +75,68 @@ func HandleDeployWAR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if agent.Enabled() {
+		r.Body = http.MaxBytesReader(w, r.Body, MaxWarUploadSize)
+		file, fileHeader, err := r.FormFile("war_file")
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Failed reading multipart 'war_file': %v", err))
+			return
+		}
+		defer file.Close()
+		magic := make([]byte, 4)
+		if _, err := io.ReadFull(file, magic); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid or empty WAR file stream")
+			return
+		}
+		if !(bytes.Equal(magic, []byte{0x50, 0x4B, 0x03, 0x04}) || bytes.Equal(magic, []byte{0x50, 0x4B, 0x05, 0x06}) || bytes.Equal(magic, []byte{0x50, 0x4B, 0x07, 0x08})) {
+			writeJSONError(w, http.StatusBadRequest, "Uploaded file is not a valid Java WAR archive")
+			return
+		}
+		if err := os.MkdirAll("/opt/panel/data/uploads", 0700); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "upload staging unavailable")
+			return
+		}
+		tmp, err := os.CreateTemp("/opt/panel/data/uploads", ".war-*")
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to create upload staging file")
+			return
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if _, err := tmp.Write(magic); err != nil {
+			_ = tmp.Close()
+			writeJSONError(w, http.StatusInternalServerError, "failed to stage WAR")
+			return
+		}
+		written, err := io.Copy(tmp, file)
+		if err != nil {
+			_ = tmp.Close()
+			writeJSONError(w, http.StatusInternalServerError, "failed to stage WAR")
+			return
+		}
+		if err := tmp.Sync(); err != nil {
+			_ = tmp.Close()
+			writeJSONError(w, http.StatusInternalServerError, "failed to sync staged WAR")
+			return
+		}
+		if err := tmp.Close(); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to close staged WAR")
+			return
+		}
+		contextName := r.FormValue("context_name")
+		payload := map[string]string{"staging": tmpName, "context_name": contextName}
+		b, err := agent.CallJSON(r.Context(), "deploy_war", cleanDomain, false, payload)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var result map[string]any
+		_ = json.Unmarshal(b, &result)
+		result["filename"] = fileHeader.Filename
+		result["size_bytes"] = written + 4
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
 	siteDir := filepath.Join(sitegenerator.BaseSitesDir, cleanDomain)
 	webappsDir := filepath.Join(siteDir, "data", "webapps")
 
@@ -178,17 +248,22 @@ func HandlePythonInstallDeps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if agent.Enabled() {
+		output, execErr := sitegenerator.InstallPythonDependencies(r.Context(), cleanDomain)
+		if execErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"status": "failed", "domain": cleanDomain, "error": execErr.Error(), "output": output})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "installed", "domain": cleanDomain, "output": output})
+		return
+	}
 	siteDir := filepath.Join(sitegenerator.BaseSitesDir, cleanDomain)
 	reqFile := filepath.Join(siteDir, "app", "requirements.txt")
-
 	if _, err := os.Stat(reqFile); os.IsNotExist(err) {
 		writeJSONError(w, http.StatusNotFound, "requirements.txt not found in app directory")
 		return
 	}
-
-	// Execute pip install inside container
-	cmd := []string{"pip", "install", "--no-cache-dir", "--user", "-r", "requirements.txt"}
-	output, execErr := sitegenerator.ExecInApp(r.Context(), cleanDomain, cmd)
+	output, execErr := sitegenerator.InstallPythonDependencies(r.Context(), cleanDomain)
 
 	if execErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
@@ -209,6 +284,21 @@ func HandlePythonInstallDeps(w http.ResponseWriter, r *http.Request) {
 
 // HandleFileTree lists directory entries under /opt/panel/apps/sites/<domain>/.
 func HandleFileTree(w http.ResponseWriter, r *http.Request) {
+	if agent.Enabled() {
+		b, err := agent.Call(r.Context(), "file_tree", extractDomainParam(r.URL.Path), false)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var data any
+		if err := json.Unmarshal(b, &data); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "invalid agent response")
+			return
+		}
+		writeJSON(w, http.StatusOK, data)
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
 		return
@@ -270,6 +360,38 @@ func HandleFileTree(w http.ResponseWriter, r *http.Request) {
 
 // HandleFileContent reads or writes text file content with strict path traversal isolation.
 func HandleFileContent(w http.ResponseWriter, r *http.Request) {
+	if agent.Enabled() {
+		domain := extractDomainParam(r.URL.Path)
+		if r.Method == http.MethodGet {
+			path := r.URL.Query().Get("path")
+			if path == "" {
+				writeJSONError(w, http.StatusBadRequest, "Missing 'path' query parameter")
+				return
+			}
+			b, err := agent.CallJSON(r.Context(), "file_content", domain, false, map[string]string{"path": path})
+			if err != nil {
+				writeJSONError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, json.RawMessage(b))
+			return
+		}
+		if r.Method == http.MethodPut {
+			var payload FileContentPayload
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxTextEditSize)).Decode(&payload); err != nil {
+				writeJSONError(w, http.StatusBadRequest, "Invalid JSON payload")
+				return
+			}
+			b, err := agent.CallJSON(r.Context(), "file_write", domain, false, payload)
+			if err != nil {
+				writeJSONError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, json.RawMessage(b))
+			return
+		}
+	}
+
 	domain := extractDomainParam(r.URL.Path)
 	cleanDomain, err := sitegenerator.SanitizeDomain(domain)
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -18,10 +17,10 @@ import (
 )
 
 // Default paths for 1Panel reverse proxy configuration
-const (
-	DefaultProxyVhostDir     = "/opt/panel/proxy/vhosts"
-	DefaultOpenRestyContainer = "1panel-openresty"
-	DefaultCertBasePath      = "/opt/panel/ssl"
+var (
+	DefaultProxyVhostDir = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_VHOST_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/conf.d/vhosts"}()
+	DefaultOpenRestyContainer = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_CONTAINER"));v!=""{return v};return "1panel-openresty"}()
+	DefaultCertBasePath = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_SSL_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/ssl"}()
 )
 
 // SSLMode describes the certificate management state.
@@ -384,24 +383,14 @@ func (pm *ProxyManager) ApplyAndReload(ctx context.Context, pvc *ProxyVhostConfi
 	return res, nil
 }
 
-// execInProxyOrHost attempts execution inside the proxy container first, falling back to host system.
+// execInProxyContainer executes only inside the managed proxy container.
+// Falling back to a host shell is intentionally forbidden because the node agent
+// is privileged and a proxy command failure must never become host command execution.
 func (pm *ProxyManager) execInProxyOrHost(ctx context.Context, cmd []string) (string, error) {
-	// Attempt Docker Exec if client is available
-	if pm.dockerCli != nil && pm.proxyContainer != nilSafeString() {
-		out, err := pm.execInContainer(ctx, pm.proxyContainer, cmd)
-		if err == nil {
-			return out, nil
-		}
+	if pm.dockerCli == nil || strings.TrimSpace(pm.proxyContainer) == "" {
+		return "", errors.New("managed proxy Docker client/container is not configured")
 	}
-
-	// Fallback to host command
-	hostCmd := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
-	outBytes, err := hostCmd.CombinedOutput()
-	return string(outBytes), err
-}
-
-func nilSafeString() string {
-	return ""
+	return pm.execInContainer(ctx, pm.proxyContainer, cmd)
 }
 
 // execInContainer executes a command inside a running Docker container and buffers stdout/stderr.

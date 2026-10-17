@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 
 	"github.com/panel/panel-agent/pkg/sitegenerator"
+	"github.com/panel/panel-agent/pkg/acme"
+	"github.com/panel/panel-agent/pkg/backup"
 )
 
 func main() {
@@ -21,8 +24,12 @@ func main() {
 		pythonApp    = flag.String("app", "main:app", "Python module entrypoint (e.g. main:app)")
 		dryRun       = flag.Bool("dry-run", false, "Preview generation without touching host filesystem")
 		outputJSON   = flag.Bool("json", false, "Output results in JSON format")
+		renewACME = flag.Bool("renew-acme", false, "Renew all ACME certificates")
+		pruneBackups = flag.Int("prune-backups", 0, "Keep N most recent backups per site")
 	)
 	flag.Parse()
+	if *renewACME { if err:=acme.NewManager().Renew(context.Background());err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)};return }
+	if *pruneBackups>0 { entries,_:=os.ReadDir(sitegenerator.BaseSitesDir);m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");for _,e:=range entries{if e.IsDir(){if _,err:=m.Prune(e.Name(),*pruneBackups);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}};return }
 
 	if *domain == "" {
 		fmt.Fprintf(os.Stderr, "Error: --domain flag is required\n\n")

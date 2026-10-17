@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ALFA-PANEL ACME renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

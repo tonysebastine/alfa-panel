@@ -1,6 +1,8 @@
 package sitegenerator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -80,7 +82,7 @@ type SiteConfig struct {
 	Domain          string            `json:"domain"`
 	Type            SiteType          `json:"type"`
 	BaseDir         string            `json:"base_dir"`          // default: /opt/panel/apps/sites
-	NetworkName     string            `json:"network_name"`      // default: panel-network
+	NetworkName     string            `json:"network_name"`      // deterministic per-site network
 	Port            int               `json:"port"`              // Internal container port
 	Resources       ResourceLimits    `json:"resources"`
 	Security        SecurityProfile   `json:"security"`
@@ -132,7 +134,7 @@ func DefaultPythonConfig() *PythonConfig {
 		AppModule:       "main:app",
 		Workers:         4,
 		Threads:         2,
-		AutoInstallReqs: true,
+		AutoInstallReqs: false,
 		VirtualenvPath:  "/opt/venv",
 	}
 }
@@ -142,8 +144,8 @@ func DefaultSecurityProfile() SecurityProfile {
 	return SecurityProfile{
 		NoNewPrivileges: true,
 		DropCaps:        []string{"ALL"},
-		AddCaps:         []string{"NET_BIND_SERVICE", "CHOWN", "SETUID", "SETGID"},
-		ReadOnlyRootfs:  false,
+		AddCaps:         []string{},
+		ReadOnlyRootfs:  true,
 		UID:             1001,
 		GID:             1001,
 	}
@@ -160,9 +162,18 @@ func DefaultResourceLimits() ResourceLimits {
 	}
 }
 
+// SiteNetworkName returns a deterministic Docker network name for one tenant.
+func SiteNetworkName(domain string) string {
+	slug := SanitizeDomainToSlug(domain)
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(domain))))
+	suffix := hex.EncodeToString(sum[:])[:12]
+	if len(slug) > 42 { slug = slug[:42] }
+	slug = strings.Trim(slug, "_")
+	return fmt.Sprintf("panel-site-%s-%s", slug, suffix)
+}
+
 // NewSiteConfig creates a new SiteConfig initialized with production defaults.
 func NewSiteConfig(domain string, siteType SiteType) *SiteConfig {
-	slug := SanitizeDomainToSlug(domain)
 	port := 8080
 	if siteType == SiteTypePython {
 		port = 8000
@@ -172,7 +183,7 @@ func NewSiteConfig(domain string, siteType SiteType) *SiteConfig {
 		Domain:      domain,
 		Type:        siteType,
 		BaseDir:     "/opt/panel/apps/sites",
-		NetworkName: "panel-network",
+		NetworkName: SiteNetworkName(domain),
 		Port:        port,
 		Resources:   DefaultResourceLimits(),
 		Security:    DefaultSecurityProfile(),

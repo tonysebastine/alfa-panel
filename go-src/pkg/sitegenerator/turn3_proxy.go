@@ -16,9 +16,9 @@ import (
 
 // Default filesystem paths for OpenResty reverse proxy
 var (
-	OpenRestyVhostDir   = "/opt/panel/apps/openresty/conf.d/vhosts"
-	OpenRestySSLDir     = "/opt/panel/apps/openresty/ssl"
-	ProxyContainerName  = "1panel-openresty"
+	OpenRestyVhostDir = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_VHOST_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/conf.d/vhosts"}()
+	OpenRestySSLDir = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_SSL_DIR"));v!=""{return v};return "/opt/panel/apps/openresty/ssl"}()
+	ProxyContainerName = func()string{if v:=strings.TrimSpace(os.Getenv("PANEL_PROXY_CONTAINER"));v!=""{return v};return "1panel-openresty"}()
 )
 
 // VhostTemplateData defines parameters passed to the Nginx vhost template.

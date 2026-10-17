@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useSyncExternalStore, useState } from 'react';
 import { defaultSiteConfig, SiteConfigState } from '@/lib/generator-client';
 import { DashboardShell, NavigationItem } from '@/components/DashboardShell';
 import { SitesManagementView, SiteItem } from '@/components/SitesManagementView';
 import { SiteDetailView } from '@/components/SiteDetailView';
 import { SiteConfigurator } from '@/components/SiteConfigurator';
 import { GeneratedArtifactsView } from '@/components/GeneratedArtifactsView';
-import { DockerSocketSimulator } from '@/components/DockerSocketSimulator';
+import RuntimeView from '@/components/RuntimeView';
 import { FileManagerModal } from '@/components/FileManagerModal';
 import { HostMonitoringPanel } from '@/components/HostMonitoringPanel';
 import { HostMetricsOverview } from '@/components/HostMetricsOverview';
@@ -16,11 +16,16 @@ import { SiteFileManager } from '@/components/SiteFileManager';
 import { SecurityPenTester } from '@/components/SecurityPenTester';
 import { GoCodeExplorer } from '@/components/GoCodeExplorer';
 import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
+import SettingsView from '@/components/SettingsView';
+import LoginScreen from '@/components/LoginScreen';
+import { isAuthenticated, logout } from '@/lib/api-client';
 
 export default function HomePage() {
+  const authenticated = useSyncExternalStore(() => () => {}, isAuthenticated, () => false);
   const [currentNav, setCurrentNav] = useState<NavigationItem>('sites');
   const [selectedSite, setSelectedSite] = useState<SiteItem | null>(null);
   const [config, setConfig] = useState<SiteConfigState>(defaultSiteConfig);
+  if (!authenticated) return <LoginScreen onAuthenticated={() => window.location.reload()} />;
 
   const handleOpenDetail = (site: SiteItem) => {
     setSelectedSite(site);
@@ -52,6 +57,7 @@ export default function HomePage() {
         setSelectedSite(null);
         setCurrentNav(nav);
       }}
+      onLogout={async () => { await logout(); window.location.reload(); }}
     >
       {/* 1. Sites View & Detail View */}
       {currentNav === 'sites' && (
@@ -81,10 +87,10 @@ export default function HomePage() {
         <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center font-mono space-y-3">
           <div className="text-emerald-400 font-bold text-base">Databases &amp; Caching Services</div>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Containerized PostgreSQL, MySQL, and Redis services joined to <code>panel-network</code> with isolated internal volumes.
+            Containerized PostgreSQL, MySQL, and Redis services using per-site isolated networks with dedicated internal volumes.
           </p>
           <div className="p-3 bg-slate-950 rounded-xl inline-block text-xs text-slate-300 border border-slate-800">
-            Internal bridge: <code>panel-network</code> (Zero exposed host ports)
+            Per-site bridge networks (zero exposed application host ports)
           </div>
         </div>
       )}
@@ -107,7 +113,7 @@ export default function HomePage() {
       {/* 6. System Settings */}
       {currentNav === 'settings' && (
         <div className="space-y-6">
-          <SecurityPenTester />
+          <SettingsView />
         </div>
       )}
 
@@ -122,7 +128,7 @@ export default function HomePage() {
       {/* 8. Docker Socket & Logs (Turn 2) */}
       {currentNav === 'docker' && (
         <div className="space-y-6">
-          <DockerSocketSimulator config={config} />
+          <RuntimeView domain={selectedSite?.domain || config.domain} />
         </div>
       )}
 

@@ -3,8 +3,8 @@ package system
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -36,13 +36,30 @@ type FirewallManager struct {
 
 // NewFirewallManager detects whether ufw or nftables is available on the Linux host.
 func NewFirewallManager() *FirewallManager {
-	backend := "ufw"
-	if _, err := exec.LookPath("ufw"); err != nil {
-		if _, err := exec.LookPath("nft"); err == nil {
-			backend = "nftables"
-		}
+	if _, err := exec.LookPath("ufw"); err == nil {
+		return &FirewallManager{backend: "ufw"}
 	}
-	return &FirewallManager{backend: backend}
+	if _, err := exec.LookPath("nft"); err == nil {
+		return &FirewallManager{backend: "nftables"}
+	}
+	return &FirewallManager{backend: "unsupported"}
+}
+
+func (fm *FirewallManager) Backend() string {
+	if fm == nil || fm.backend == "" {
+		return "unsupported"
+	}
+	return fm.backend
+}
+
+func (fm *FirewallManager) MutationsEnabled() bool {
+	if fm == nil {
+		return false
+	}
+	if fm.backend == "ufw" {
+		return true
+	}
+	return fm.backend == "nftables" && strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_NFTABLES_MUTATIONS_ENABLED")), "true")
 }
 
 // sanitizeComment strips dangerous shell escapes from comment fields.
@@ -58,6 +75,12 @@ func sanitizeComment(comment string) string {
 
 // ListRules retrieves numbered rules from the host firewall.
 func (fm *FirewallManager) ListRules(ctx context.Context) ([]FirewallRule, error) {
+	if fm == nil {
+		return nil, fmt.Errorf("firewall manager is unavailable")
+	}
+	if fm.backend == "unsupported" {
+		return nil, fmt.Errorf("no supported firewall backend (ufw or nft) is installed")
+	}
 	if fm.backend == "ufw" {
 		cmd := exec.CommandContext(ctx, "ufw", "status", "numbered")
 		out, err := cmd.CombinedOutput()
@@ -73,16 +96,18 @@ func (fm *FirewallManager) ListRules(ctx context.Context) ([]FirewallRule, error
 	if err != nil {
 		return nil, fmt.Errorf("failed listing nftables rules: %s (%w)", string(out), err)
 	}
-	// Return representative parsed rules
-	return []FirewallRule{
-		{ID: 1, Port: 22, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "SSH Management"},
-		{ID: 2, Port: 80, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTP Ingress (1Panel)"},
-		{ID: 3, Port: 443, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTPS Ingress (1Panel)"},
-	}, nil
+	out, err = exec.CommandContext(ctx, "nft", "-a", "list", "chain", "inet", "filter", "input").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed listing nftables input chain: %s (%w)", string(out), err)
+	}
+	return parseNFTOutput(string(out)), nil
 }
 
 // AllowPort opens a port on the host firewall: ufw allow <port>/<proto> comment '<comment>'
 func (fm *FirewallManager) AllowPort(ctx context.Context, port int, proto string, comment string) error {
+	if fm == nil || fm.backend == "unsupported" {
+		return fmt.Errorf("firewall changes are unavailable: no supported backend")
+	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("port out of range (1-65535): %d", port)
 	}
@@ -109,8 +134,18 @@ func (fm *FirewallManager) AllowPort(ctx context.Context, port int, proto string
 		cmd = exec.CommandContext(ctx, "ufw", "allow", ruleSpec, "comment", cleanComment)
 	} else {
 		// nftables rule addition
-		cmd = exec.CommandContext(ctx, "nft", "add", "rule", "inet", "filter", "input",
-			proto, "dport", strconv.Itoa(port), "accept")
+		if err := fm.ensureNFTInputChain(ctx); err != nil {
+			return err
+		}
+		if proto == "any" {
+			for _, p := range []string{"tcp", "udp"} {
+				if err := fm.nftRule(ctx, p, port, "accept"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return fm.nftRule(ctx, proto, port, "accept")
 	}
 
 	out, err := cmd.CombinedOutput()
@@ -123,6 +158,9 @@ func (fm *FirewallManager) AllowPort(ctx context.Context, port int, proto string
 
 // DenyPort closes a port on the host firewall.
 func (fm *FirewallManager) DenyPort(ctx context.Context, port int, proto string) error {
+	if fm == nil || fm.backend == "unsupported" {
+		return fmt.Errorf("firewall changes are unavailable: no supported backend")
+	}
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("port out of range (1-65535): %d", port)
 	}
@@ -130,6 +168,12 @@ func (fm *FirewallManager) DenyPort(ctx context.Context, port int, proto string)
 	proto = strings.ToLower(strings.TrimSpace(proto))
 	if proto == "" {
 		proto = "tcp"
+	}
+	if proto != "tcp" && proto != "udp" && proto != "any" {
+		return fmt.Errorf("unsupported protocol '%s' (must be 'tcp', 'udp', or 'any')", proto)
+	}
+	if (port == 22 && (proto == "tcp" || proto == "any")) && !strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_ALLOW_SSH_LOCKOUT")), "true") {
+		return fmt.Errorf("refusing to deny SSH port 22 without PANEL_ALLOW_SSH_LOCKOUT=true and verified out-of-band access")
 	}
 
 	var cmd *exec.Cmd
@@ -140,8 +184,18 @@ func (fm *FirewallManager) DenyPort(ctx context.Context, port int, proto string)
 		}
 		cmd = exec.CommandContext(ctx, "ufw", "deny", ruleSpec)
 	} else {
-		cmd = exec.CommandContext(ctx, "nft", "add", "rule", "inet", "filter", "input",
-			proto, "dport", strconv.Itoa(port), "drop")
+		if err := fm.ensureNFTInputChain(ctx); err != nil {
+			return err
+		}
+		if proto == "any" {
+			for _, p := range []string{"tcp", "udp"} {
+				if err := fm.nftRule(ctx, p, port, "drop"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return fm.nftRule(ctx, proto, port, "drop")
 	}
 
 	out, err := cmd.CombinedOutput()
@@ -186,14 +240,57 @@ func parseUFWNumberedOutput(output string) []FirewallRule {
 		}
 	}
 
-	// If no rules were parsed (e.g. mock or empty ufw), return default hardened baseline
-	if len(rules) == 0 {
-		rules = []FirewallRule{
-			{ID: 1, Port: 22, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "SSH Management"},
-			{ID: 2, Port: 80, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTP 1Panel Ingress"},
-			{ID: 3, Port: 443, Protocol: "tcp", Action: ActionAllow, FromIP: "Anywhere", Comment: "HTTPS 1Panel Ingress"},
-		}
-	}
+	return rules
+}
 
+type FirewallRequest struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	Comment  string `json:"comment"`
+}
+
+func (fm *FirewallManager) Allow(req FirewallRequest) error {
+	return fm.AllowPort(context.Background(), req.Port, req.Protocol, req.Comment)
+}
+func (fm *FirewallManager) Deny(req FirewallRequest) error {
+	return fm.DenyPort(context.Background(), req.Port, req.Protocol)
+}
+
+func (fm *FirewallManager) ensureNFTInputChain(ctx context.Context) error {
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("PANEL_NFTABLES_MUTATIONS_ENABLED")), "true") {
+		return fmt.Errorf("nftables mutations are disabled by default; review the host ruleset and explicitly enable PANEL_NFTABLES_MUTATIONS_ENABLED only after recovery access is verified")
+	}
+	if _, err := exec.CommandContext(ctx, "nft", "list", "chain", "inet", "filter", "input").CombinedOutput(); err != nil {
+		return fmt.Errorf("refusing to create or change an nftables base chain automatically; expected existing inet filter input chain: %w", err)
+	}
+	return nil
+}
+
+func (fm *FirewallManager) nftRule(ctx context.Context, proto string, port int, action string) error {
+	out, err := exec.CommandContext(ctx, "nft", "insert", "rule", "inet", "filter", "input", proto, "dport", strconv.Itoa(port), action).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft rule failed: %s (%w)", out, err)
+	}
+	return nil
+}
+
+func parseNFTOutput(output string) []FirewallRule {
+	var rules []FirewallRule
+	re := regexp.MustCompile(`(?i)(tcp|udp) dport ([0-9]+).*?(accept|drop)(?:.*?comment "([^"]*)")?`)
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	id := 1
+	for scanner.Scan() {
+		m := re.FindStringSubmatch(scanner.Text())
+		if len(m) == 0 {
+			continue
+		}
+		port, _ := strconv.Atoi(m[2])
+		action := ActionDeny
+		if strings.EqualFold(m[3], "accept") {
+			action = ActionAllow
+		}
+		rules = append(rules, FirewallRule{ID: id, Port: port, Protocol: strings.ToLower(m[1]), Action: action, FromIP: "Anywhere", Comment: m[4]})
+		id++
+	}
 	return rules
 }

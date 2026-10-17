@@ -2,7 +2,6 @@ package sitegenerator
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"testing"
 	"time"
