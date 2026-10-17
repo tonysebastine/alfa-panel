@@ -52,24 +52,62 @@ type ExecRequest struct {
 }
 
 // HandleLogin authenticates users and validates RFC 6238 TOTP.
-func HandleLogin(w http.ResponseWriter,r *http.Request){
- if r.Method!=http.MethodPost{http.Error(w,`{"error":"method_not_allowed"}`,http.StatusMethodNotAllowed);return}
- identity,ok:=r.Context().Value(LoginIdentityKey).([]string);if !ok||len(identity)!=2{writeJSONError(w,http.StatusUnauthorized,"authenticated login context required");return}
- pair,err:=GenerateTokenPair(identity[0],identity[1]);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"token generation failed");return}
- writeJSON(w,http.StatusOK,pair)
+func HandleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	identity, ok := r.Context().Value(LoginIdentityKey).([]string)
+	if !ok || len(identity) != 2 {
+		writeJSONError(w, http.StatusUnauthorized, "authenticated login context required")
+		return
+	}
+	pair, err := GenerateTokenPair(identity[0], identity[1])
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, pair)
 }
 
 // HandleListSites scans /opt/panel/apps/sites/ and inspects live cgroup stats.
 func HandleListSites(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet { http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed); return }
-	if agent.Enabled() {
-		b,err:=agent.Call(r.Context(),"list_sites","",false);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return}
-		var statuses []sitegenerator.SiteStatus;if err:=json.Unmarshal(b,&statuses);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid agent response");return}
-		writeJSON(w,http.StatusOK,map[string]any{"sites":statuses,"total":len(statuses)});return
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method_not_allowed"}`, http.StatusMethodNotAllowed)
+		return
 	}
-	baseDir:=sitegenerator.BaseSitesDir;entries,err:=os.ReadDir(baseDir);if err!=nil&&!os.IsNotExist(err){writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("Failed reading sites: %v",err));return}
-	statuses:=make([]sitegenerator.SiteStatus,0,len(entries));for _,entry:=range entries{if !entry.IsDir(){continue};s,err:=sitegenerator.GetSiteStatus(r.Context(),entry.Name());if err!=nil{s=sitegenerator.SiteStatus{Domain:entry.Name(),Status:"offline"}};statuses=append(statuses,s)}
-	writeJSON(w,http.StatusOK,map[string]any{"sites":statuses,"total":len(statuses)})
+	if agent.Enabled() {
+		b, err := agent.Call(r.Context(), "list_sites", "", false)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var statuses []sitegenerator.SiteStatus
+		if err := json.Unmarshal(b, &statuses); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "invalid agent response")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"sites": statuses, "total": len(statuses)})
+		return
+	}
+	baseDir := sitegenerator.BaseSitesDir
+	entries, err := os.ReadDir(baseDir)
+	if err != nil && !os.IsNotExist(err) {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed reading sites: %v", err))
+		return
+	}
+	statuses := make([]sitegenerator.SiteStatus, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		s, err := sitegenerator.GetSiteStatus(r.Context(), entry.Name())
+		if err != nil {
+			s = sitegenerator.SiteStatus{Domain: entry.Name(), Status: "offline"}
+		}
+		statuses = append(statuses, s)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sites": statuses, "total": len(statuses)})
 }
 
 // HandleCreateSite validates input, runs Turn 1 generator, and provisions Turn 3 OpenResty vhost.
@@ -116,34 +154,60 @@ func HandleCreateSite(w http.ResponseWriter, r *http.Request) {
 	cfg.Resources.MemoryLimit = req.RamLimit
 
 	if siteType == sitegenerator.SiteTypeTomcat {
-		if req.TomcatVersion != "" { cfg.Tomcat.TomcatVersion = req.TomcatVersion }
-		if req.JvmXms != "" { cfg.Tomcat.MinHeap = req.JvmXms }
-		if req.JvmXmx != "" { cfg.Tomcat.MaxHeap = req.JvmXmx }
-		if req.JavaOpts != "" { cfg.Tomcat.CustomJVMOptions = strings.Fields(req.JavaOpts) }
+		if req.TomcatVersion != "" {
+			cfg.Tomcat.TomcatVersion = req.TomcatVersion
+		}
+		if req.JvmXms != "" {
+			cfg.Tomcat.MinHeap = req.JvmXms
+		}
+		if req.JvmXmx != "" {
+			cfg.Tomcat.MaxHeap = req.JvmXmx
+		}
+		if req.JavaOpts != "" {
+			cfg.Tomcat.CustomJVMOptions = strings.Fields(req.JavaOpts)
+		}
 	} else {
-		if req.PythonVersion != "" { cfg.Python.PythonVersion = req.PythonVersion }
-		if req.AppEntry != "" { cfg.Python.AppModule = req.AppEntry }
-		if req.ServerType != "" { cfg.Python.Runner = sitegenerator.PythonRunner(req.ServerType) }
-		if req.Workers > 0 { cfg.Python.Workers = req.Workers }
+		if req.PythonVersion != "" {
+			cfg.Python.PythonVersion = req.PythonVersion
+		}
+		if req.AppEntry != "" {
+			cfg.Python.AppModule = req.AppEntry
+		}
+		if req.ServerType != "" {
+			cfg.Python.Runner = sitegenerator.PythonRunner(req.ServerType)
+		}
+		if req.Workers > 0 {
+			cfg.Python.Workers = req.Workers
+		}
 	}
 
 	var res *sitegenerator.GenerationResult
 	if agent.Enabled() {
 		payload, callErr := agent.CallJSON(r.Context(), "create_site", cleanDomain, false, cfg)
-		if callErr != nil { writeJSONError(w,http.StatusBadRequest,fmt.Sprintf("site provisioning failed: %v",callErr));return }
+		if callErr != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("site provisioning failed: %v", callErr))
+			return
+		}
 		var generated sitegenerator.GenerationResult
-		if err:=json.Unmarshal(payload,&generated);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid agent response");return}
-		res=&generated
+		if err := json.Unmarshal(payload, &generated); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "invalid agent response")
+			return
+		}
+		res = &generated
 	} else {
 		var genErr error
 		res, genErr = sitegenerator.NewGenerator(false).GenerateSite(cfg)
-		if genErr != nil { writeJSONError(w,http.StatusBadRequest,fmt.Sprintf("site provisioning failed: %v",genErr));return }
+		if genErr != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("site provisioning failed: %v", genErr))
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"status":"created","domain":cleanDomain,"site_path":res.SitePath,"vhost_path":res.ProxyConfigPath,
-		"container_name":res.ContainerName,"ssl_enabled":req.EnableSSL,
+		"status": "created", "domain": cleanDomain, "site_path": res.SitePath, "vhost_path": res.ProxyConfigPath,
+		"container_name": res.ContainerName, "ssl_enabled": req.EnableSSL,
 	})
 }
+
 // HandleSiteAction handles /api/v1/sites/:domain/{start|stop|restart}.
 func HandleSiteAction(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +228,17 @@ func HandleSiteAction(action string) http.HandlerFunc {
 		if agent.Enabled() {
 			_, actionErr = agent.Call(ctx, action, cleanDomain, false)
 		} else {
-			switch action { case "start": actionErr=sitegenerator.StartSite(ctx,cleanDomain); case "stop": actionErr=sitegenerator.StopSite(ctx,cleanDomain); case "restart": actionErr=sitegenerator.RestartSite(ctx,cleanDomain); default: writeJSONError(w,http.StatusBadRequest,"Unknown action"); return }
+			switch action {
+			case "start":
+				actionErr = sitegenerator.StartSite(ctx, cleanDomain)
+			case "stop":
+				actionErr = sitegenerator.StopSite(ctx, cleanDomain)
+			case "restart":
+				actionErr = sitegenerator.RestartSite(ctx, cleanDomain)
+			default:
+				writeJSONError(w, http.StatusBadRequest, "Unknown action")
+				return
+			}
 		}
 
 		if actionErr != nil {
@@ -190,8 +264,15 @@ func HandleSiteLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reader io.ReadCloser
-	if agent.Enabled() { reader,err=agent.Logs(r.Context(),cleanDomain) } else { reader,err=sitegenerator.StreamLogs(r.Context(),cleanDomain) }
-	if err != nil { writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("Failed opening log stream: %v",err));return }
+	if agent.Enabled() {
+		reader, err = agent.Logs(r.Context(), cleanDomain)
+	} else {
+		reader, err = sitegenerator.StreamLogs(r.Context(), cleanDomain)
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed opening log stream: %v", err))
+		return
+	}
 	defer reader.Close()
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -275,76 +356,281 @@ func extractDomainParam(path string) string {
 
 // HandleDeleteSite performs a destructive typed site deletion. The caller must explicitly confirm the domain.
 func HandleDeleteSite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed"); return }
-	domain:=extractDomainParam(r.URL.Path)
-	cleanDomain,err:=sitegenerator.SanitizeDomain(domain); if err!=nil { writeJSONError(w,http.StatusBadRequest,err.Error()); return }
-	var req struct{ ConfirmDomain string `json:"confirm_domain"`; Purge bool `json:"purge"` }
-	if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil || !strings.EqualFold(strings.TrimSpace(req.ConfirmDomain),cleanDomain){
-		writeJSONError(w,http.StatusBadRequest,"confirm_domain must exactly match the site domain"); return
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
 	}
-	if err:=sitegenerator.DeleteSite(r.Context(),cleanDomain,req.Purge);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("site deletion failed: %v",err));return}
-	writeJSON(w,http.StatusOK,map[string]any{"status":"deleted","domain":cleanDomain,"purged":req.Purge})
+	domain := extractDomainParam(r.URL.Path)
+	cleanDomain, err := sitegenerator.SanitizeDomain(domain)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req struct {
+		ConfirmDomain string `json:"confirm_domain"`
+		Purge         bool   `json:"purge"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil || !strings.EqualFold(strings.TrimSpace(req.ConfirmDomain), cleanDomain) {
+		writeJSONError(w, http.StatusBadRequest, "confirm_domain must exactly match the site domain")
+		return
+	}
+	if err := sitegenerator.DeleteSite(r.Context(), cleanDomain, req.Purge); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("site deletion failed: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "domain": cleanDomain, "purged": req.Purge})
 }
 
-
 func HandleCreateBackup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed"); return }
-	domain,err:=sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path));if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
-	if agent.Enabled(){b,err:=agent.CallJSON(r.Context(),"backup_create",domain,false,nil);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};var a backup.Artifact;if err:=json.Unmarshal(b,&a);err!=nil{writeJSONError(w,http.StatusInternalServerError,"invalid backup response");return};writeJSON(w,http.StatusCreated,a);return}
-	a,err:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups").Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("backup failed: %v",err));return};writeJSON(w,http.StatusCreated,a)
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	domain, err := sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if agent.Enabled() {
+		b, err := agent.CallJSON(r.Context(), "backup_create", domain, false, nil)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var a backup.Artifact
+		if err := json.Unmarshal(b, &a); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "invalid backup response")
+			return
+		}
+		writeJSON(w, http.StatusCreated, a)
+		return
+	}
+	a, err := backup.NewManager(sitegenerator.BaseSitesDir, "/opt/panel/backups").Create(domain)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("backup failed: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
 }
 
 func HandleRestoreBackup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return }
-	domain,err:=sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path));if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
-	var req struct{ Artifact string `json:"artifact"` }
-	if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil || strings.TrimSpace(req.Artifact)=="" {writeJSONError(w,http.StatusBadRequest,"artifact is required");return}
-	if agent.Enabled(){b,err:=agent.CallJSON(r.Context(),"backup_restore",domain,false,req);if err!=nil{writeJSONError(w,http.StatusInternalServerError,err.Error());return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"details":json.RawMessage(b)});return}
-	m:=backup.NewManager(sitegenerator.BaseSitesDir,"/opt/panel/backups");pre,err:=m.Create(domain);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"pre-restore backup failed");return};_ = sitegenerator.StopSite(r.Context(),domain);if err:=m.Restore(domain,req.Artifact);err!=nil{_ = sitegenerator.StartSite(r.Context(),domain);writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore failed; pre-restore backup retained at %s: %v",pre.Path,err));return};if err:=sitegenerator.StartSite(r.Context(),domain);err!=nil{writeJSONError(w,http.StatusInternalServerError,fmt.Sprintf("restore completed but site failed to start; pre-restore backup retained at %s: %v",pre.Path,err));return};writeJSON(w,http.StatusOK,map[string]any{"status":"restored","domain":domain,"artifact":req.Artifact,"pre_restore_backup":pre.Path})
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	domain, err := sitegenerator.SanitizeDomain(extractDomainParam(r.URL.Path))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req struct {
+		Artifact string `json:"artifact"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil || strings.TrimSpace(req.Artifact) == "" {
+		writeJSONError(w, http.StatusBadRequest, "artifact is required")
+		return
+	}
+	if agent.Enabled() {
+		b, err := agent.CallJSON(r.Context(), "backup_restore", domain, false, req)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "restored", "domain": domain, "details": json.RawMessage(b)})
+		return
+	}
+	m := backup.NewManager(sitegenerator.BaseSitesDir, "/opt/panel/backups")
+	m.RuntimeIdentity = sitegenerator.RuntimeIdentity
+	pre, err := m.Create(domain)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "pre-restore backup failed")
+		return
+	}
+	if err := sitegenerator.StopSite(r.Context(), domain); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("site could not be stopped safely; restore was not started; pre-restore backup retained at %s", pre.Path))
+		return
+	}
+	if restoreErr := m.Restore(domain, req.Artifact); restoreErr != nil {
+		rollbackErr := m.Restore(domain, pre.Path)
+		if rollbackErr == nil {
+			rollbackErr = sitegenerator.StartSite(r.Context(), domain)
+		}
+		if rollbackErr != nil {
+			writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("restore failed (%v); recovery failed (%v); pre-restore backup retained at %s", restoreErr, rollbackErr, pre.Path))
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("restore failed; previous site state was recovered: %v", restoreErr))
+		return
+	}
+	if err := sitegenerator.StartSite(r.Context(), domain); err != nil {
+		_ = sitegenerator.StopSite(r.Context(), domain)
+		rollbackErr := m.Restore(domain, pre.Path)
+		if rollbackErr == nil {
+			rollbackErr = sitegenerator.StartSite(r.Context(), domain)
+		}
+		if rollbackErr != nil {
+			writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("restored site failed to start (%v); recovery failed (%v); pre-restore backup retained at %s", err, rollbackErr, pre.Path))
+			return
+		}
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("restored site failed to start; previous site state was recovered: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "restored", "domain": domain, "artifact": req.Artifact, "pre_restore_backup": pre.Path})
 }
 
-func HandleUsers(w http.ResponseWriter,r *http.Request){
-	s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable");return}
-	switch r.Method{
+func HandleUsers(w http.ResponseWriter, r *http.Request) {
+	s := persistentAuth()
+	if s == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "persistent identity store is unavailable")
+		return
+	}
+	switch r.Method {
 	case http.MethodGet:
-		users,err:=s.ListUsers();if err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to list users");return}
-		out:=make([]map[string]any,0,len(users));for _,u:=range users{out=append(out,map[string]any{"id":u.ID,"username":u.Username,"role":u.Role,"enabled":u.Enabled,"created_at":u.CreatedAt,"updated_at":u.UpdatedAt})};writeJSON(w,http.StatusOK,map[string]any{"users":out})
+		users, err := s.ListUsers()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to list users")
+			return
+		}
+		out := make([]map[string]any, 0, len(users))
+		for _, u := range users {
+			out = append(out, map[string]any{"id": u.ID, "username": u.Username, "role": u.Role, "enabled": u.Enabled, "created_at": u.CreatedAt, "updated_at": u.UpdatedAt})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"users": out})
 	case http.MethodPost:
-		var req struct{Username string `json:"username"`;Password string `json:"password"`;TOTPCodeSecret string `json:"totp_secret"`;Role string `json:"role"`}
-		if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid request");return}
-		u,err:=CreatePersistentUser(req.Username,req.Password,req.TOTPCodeSecret,req.Role);if err!=nil{writeJSONError(w,http.StatusBadRequest,err.Error());return}
-		writeJSON(w,http.StatusCreated,u)
-	default:writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed")
+		var req struct {
+			Username       string `json:"username"`
+			Password       string `json:"password"`
+			TOTPCodeSecret string `json:"totp_secret"`
+			Role           string `json:"role"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid request")
+			return
+		}
+		u, err := CreatePersistentUser(req.Username, req.Password, req.TOTPCodeSecret, req.Role)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, u)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func HandleDeleteUser(w http.ResponseWriter,r *http.Request){
-	if r.Method!=http.MethodDelete{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
-	id:=strings.TrimPrefix(r.URL.Path,"/api/v1/users/");id=strings.TrimSpace(strings.Trim(id,"/"));if id==""{writeJSONError(w,http.StatusBadRequest,"user id required");return}
-	claims,_:=r.Context().Value(UserContextKey).(*JWTClaims);if claims!=nil&&claims.Subject==id{writeJSONError(w,http.StatusBadRequest,"cannot delete current user");return}
-	if s:=persistentAuth();s!=nil{if err:=s.DeleteUser(id);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to delete user");return};writeJSON(w,http.StatusOK,map[string]string{"status":"deleted","id":id});return}
-	writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store is unavailable")
+func HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+	id = strings.TrimSpace(strings.Trim(id, "/"))
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "user id required")
+		return
+	}
+	claims, _ := r.Context().Value(UserContextKey).(*JWTClaims)
+	if claims != nil && claims.Subject == id {
+		writeJSONError(w, http.StatusBadRequest, "cannot delete current user")
+		return
+	}
+	if s := persistentAuth(); s != nil {
+		if err := s.DeleteUser(id); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to delete user")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id})
+		return
+	}
+	writeJSONError(w, http.StatusServiceUnavailable, "persistent identity store is unavailable")
 }
 
-func HandleUpdateUser(w http.ResponseWriter,r *http.Request){
- if r.Method!=http.MethodPut{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
- id:=strings.TrimSpace(strings.Trim(strings.TrimPrefix(r.URL.Path,"/api/v1/users/"),"/"));if id==""{writeJSONError(w,http.StatusBadRequest,"user id required");return}
- s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"persistent identity store unavailable");return}
- u,err:=s.GetUser(id);if err!=nil{writeJSONError(w,http.StatusNotFound,"user not found");return}
- var req struct{Role string `json:"role"`;Enabled *bool `json:"enabled"`;Password string `json:"password"`;TOTPSecret string `json:"totp_secret"`}
- if err:=json.NewDecoder(http.MaxBytesReader(w,r.Body,16<<10)).Decode(&req);err!=nil{writeJSONError(w,http.StatusBadRequest,"invalid request");return}
- if req.Role!=""{role:=strings.ToLower(strings.TrimSpace(req.Role));if !HasPermission(role,PermSitesRead){writeJSONError(w,http.StatusBadRequest,"invalid role");return};u.Role=role}
- if req.Enabled!=nil{u.Enabled=*req.Enabled}
- if req.Password!=""{if len(req.Password)<12{writeJSONError(w,http.StatusBadRequest,"password must be at least 12 characters");return};h,e:=bcrypt.GenerateFromPassword([]byte(req.Password),bcrypt.DefaultCost);if e!=nil{writeJSONError(w,http.StatusInternalServerError,"password hashing failed");return};u.PasswordHash=string(h)}
- if req.TOTPSecret!=""{enc,e:=encryptSecret(req.TOTPSecret);if e!=nil{writeJSONError(w,http.StatusInternalServerError,"TOTP encryption failed");return};u.TOTPSecret=enc}
- if u.Role=="owner"||u.Role=="admin" {u.Enabled=true}
- u.UpdatedAt=time.Now().UTC();if err:=s.PutUser(*u);err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to update user");return}
- writeJSON(w,http.StatusOK,map[string]any{"id":u.ID,"username":u.Username,"role":u.Role,"enabled":u.Enabled})
+func HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	id := strings.TrimSpace(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/users/"), "/"))
+	if id == "" {
+		writeJSONError(w, http.StatusBadRequest, "user id required")
+		return
+	}
+	s := persistentAuth()
+	if s == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "persistent identity store unavailable")
+		return
+	}
+	u, err := s.GetUser(id)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	var req struct {
+		Role       string `json:"role"`
+		Enabled    *bool  `json:"enabled"`
+		Password   string `json:"password"`
+		TOTPSecret string `json:"totp_secret"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.Role != "" {
+		role := strings.ToLower(strings.TrimSpace(req.Role))
+		if !HasPermission(role, PermSitesRead) {
+			writeJSONError(w, http.StatusBadRequest, "invalid role")
+			return
+		}
+		u.Role = role
+	}
+	if req.Enabled != nil {
+		u.Enabled = *req.Enabled
+	}
+	if req.Password != "" {
+		if len(req.Password) < 12 {
+			writeJSONError(w, http.StatusBadRequest, "password must be at least 12 characters")
+			return
+		}
+		h, e := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if e != nil {
+			writeJSONError(w, http.StatusInternalServerError, "password hashing failed")
+			return
+		}
+		u.PasswordHash = string(h)
+	}
+	if req.TOTPSecret != "" {
+		enc, e := encryptSecret(req.TOTPSecret)
+		if e != nil {
+			writeJSONError(w, http.StatusInternalServerError, "TOTP encryption failed")
+			return
+		}
+		u.TOTPSecret = enc
+	}
+	if u.Role == "owner" || u.Role == "admin" {
+		u.Enabled = true
+	}
+	u.UpdatedAt = time.Now().UTC()
+	if err := s.PutUser(*u); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to update user")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "username": u.Username, "role": u.Role, "enabled": u.Enabled})
 }
 
-func HandleAudit(w http.ResponseWriter,r *http.Request){
- if r.Method!=http.MethodGet{writeJSONError(w,http.StatusMethodNotAllowed,"method not allowed");return}
- s:=persistentAuth();if s==nil{writeJSONError(w,http.StatusServiceUnavailable,"audit store unavailable");return}
- events,err:=s.ListAudit(100);if err!=nil{writeJSONError(w,http.StatusInternalServerError,"failed to read audit log");return}
- writeJSON(w,http.StatusOK,map[string]any{"events":events})
+func HandleAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	s := persistentAuth()
+	if s == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "audit store unavailable")
+		return
+	}
+	events, err := s.ListAudit(100)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to read audit log")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
