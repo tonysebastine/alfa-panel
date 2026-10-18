@@ -147,18 +147,57 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// extractIP obtains the client IP address considering reverse proxy headers.
-func extractIP(r *http.Request) string {
-	remote:=r.RemoteAddr;host,_,err:=net.SplitHostPort(remote);if err!=nil{host=remote}
-	if os.Getenv("PANEL_TRUST_PROXY")!="true"{return host}
-	remoteIP:=net.ParseIP(host);if remoteIP==nil{return host}
-	trusted:=false
-	for _,raw:=range strings.Split(os.Getenv("PANEL_TRUSTED_PROXY_CIDRS"),","){
-		_,cidr,err:=net.ParseCIDR(strings.TrimSpace(raw));if err==nil&&cidr.Contains(remoteIP){trusted=true;break}
+func isTrustedProxy(ip net.IP) bool {
+	if ip == nil {
+		return false
 	}
-	if !trusted{return host}
-	if forwarded:=r.Header.Get("X-Forwarded-For");forwarded!=""{parts:=strings.Split(forwarded,",");if ip:=net.ParseIP(strings.TrimSpace(parts[0]));ip!=nil{return ip.String()}}
-	if real:=net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP")));real!=nil{return real.String()}
+	for _, raw := range strings.Split(os.Getenv("PANEL_TRUSTED_PROXY_CIDRS"), ",") {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		_, cidr, err := net.ParseCIDR(trimmed)
+		if err == nil && cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractIP obtains the client IP address considering reverse proxy headers.
+// When trusted proxies are configured, it traverses X-Forwarded-For from right to left
+// and selects the first untrusted IP to prevent client-side header spoofing.
+func extractIP(r *http.Request) string {
+	remote := r.RemoteAddr
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	if os.Getenv("PANEL_TRUST_PROXY") != "true" {
+		return host
+	}
+	remoteIP := net.ParseIP(host)
+	if !isTrustedProxy(remoteIP) {
+		return host
+	}
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		parts := strings.Split(forwarded, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			ipStr := strings.TrimSpace(parts[i])
+			ip := net.ParseIP(ipStr)
+			if ip == nil {
+				break
+			}
+			if !isTrustedProxy(ip) {
+				return ip.String()
+			}
+		}
+	}
+	if real := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); real != nil {
+		if !isTrustedProxy(real) {
+			return real.String()
+		}
+	}
 	return host
 }
 

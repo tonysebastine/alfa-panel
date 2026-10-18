@@ -1,6 +1,7 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,6 +40,11 @@ type FileContentPayload struct {
 	Content string `json:"content"`
 }
 
+// within reports whether path is dir itself or lies beneath it.
+func within(dir, path string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
 // ResolveSafePath ensures user-supplied path remains strictly confined inside siteDir.
 func ResolveSafePath(siteDir string, userPath string) (string, error) {
 	cleanSiteDir := filepath.Clean(siteDir)
@@ -55,10 +62,65 @@ func ResolveSafePath(siteDir string, userPath string) (string, error) {
 	}
 	cleanUserPath := filepath.Clean(filepath.FromSlash(raw))
 	targetPath := filepath.Join(cleanSiteDir, cleanUserPath)
-	if targetPath != cleanSiteDir && !strings.HasPrefix(targetPath, cleanSiteDir+string(filepath.Separator)) {
+	if !within(cleanSiteDir, targetPath) {
 		return "", fmt.Errorf("forbidden path traversal attempt: '%s' escapes '%s'", userPath, siteDir)
 	}
+
+	realSite, err := filepath.EvalSymlinks(cleanSiteDir)
+	if err == nil {
+		existing := targetPath
+		var rest []string
+		for {
+			if _, statErr := os.Lstat(existing); statErr == nil {
+				break
+			} else if !os.IsNotExist(statErr) {
+				return "", fmt.Errorf("cannot stat path: %w", statErr)
+			}
+			parent := filepath.Dir(existing)
+			if parent == existing {
+				break
+			}
+			rest = append([]string{filepath.Base(existing)}, rest...)
+			existing = parent
+		}
+		realExisting, err := filepath.EvalSymlinks(existing)
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve path: %w", err)
+		}
+		if !within(realSite, realExisting) {
+			return "", fmt.Errorf("forbidden: '%s' resolves outside the site directory", userPath)
+		}
+		return filepath.Join(append([]string{realExisting}, rest...)...), nil
+	}
 	return targetPath, nil
+}
+
+var warContextRegex = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// validateWARArchive opens the file as a ZIP and rejects entries that could
+// escape the extraction directory (absolute paths or ".." segments).
+func validateWARArchive(path string) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("not a readable zip: %w", err)
+	}
+	defer zr.Close()
+
+	if len(zr.File) == 0 {
+		return fmt.Errorf("archive is empty")
+	}
+	for _, f := range zr.File {
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		if strings.HasPrefix(name, "/") {
+			return fmt.Errorf("absolute path entry %q", f.Name)
+		}
+		for _, seg := range strings.Split(name, "/") {
+			if seg == ".." {
+				return fmt.Errorf("path traversal entry %q", f.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // HandleDeployWAR streams uploaded .war, validates ZIP magic bytes, saves to data/webapps/ROOT.war, and triggers restart.
@@ -123,7 +185,19 @@ func HandleDeployWAR(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusInternalServerError, "failed to close staged WAR")
 			return
 		}
+		if err := validateWARArchive(tmpName); err != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid WAR archive: %v", err))
+			return
+		}
 		contextName := r.FormValue("context_name")
+		if contextName == "" {
+			contextName = "ROOT"
+		}
+		contextName = strings.TrimSuffix(strings.ReplaceAll(contextName, "/", ""), ".war")
+		if !warContextRegex.MatchString(contextName) {
+			writeJSONError(w, http.StatusBadRequest, "Invalid context_name: must be 1-64 alphanumeric, underscore or hyphen characters")
+			return
+		}
 		payload := map[string]string{"staging": tmpName, "context_name": contextName}
 		b, err := agent.CallJSON(r.Context(), "deploy_war", cleanDomain, false, payload)
 		if err != nil {
@@ -206,6 +280,11 @@ func HandleDeployWAR(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = tmpFile.Sync()
 	_ = tmpFile.Close()
+
+	if err := validateWARArchive(tmpName); err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid WAR archive: %v", err))
+		return
+	}
 
 	// Chmod to 0640
 	_ = os.Chmod(tmpName, 0640)

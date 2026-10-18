@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -478,6 +479,28 @@ func deployWAR(domain, staging, contextName string) (map[string]any, error) {
 	if err != nil || !(bytes.Equal(magic, []byte{0x50, 0x4B, 0x03, 0x04}) || bytes.Equal(magic, []byte{0x50, 0x4B, 0x05, 0x06}) || bytes.Equal(magic, []byte{0x50, 0x4B, 0x07, 0x08})) {
 		return nil, errors.New("invalid WAR archive")
 	}
+	zr, err := zip.OpenReader(abs)
+	if err != nil {
+		return nil, fmt.Errorf("not a readable zip: %w", err)
+	}
+	if len(zr.File) == 0 {
+		_ = zr.Close()
+		return nil, errors.New("WAR archive is empty")
+	}
+	for _, f := range zr.File {
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		if strings.HasPrefix(name, "/") {
+			_ = zr.Close()
+			return nil, fmt.Errorf("absolute path entry in archive: %s", f.Name)
+		}
+		for _, seg := range strings.Split(name, "/") {
+			if seg == ".." {
+				_ = zr.Close()
+				return nil, fmt.Errorf("path traversal entry in archive: %s", f.Name)
+			}
+		}
+	}
+	_ = zr.Close()
 	targetDir, err := sitegenerator.ResolveSitePath(domain, "data/webapps")
 	if err != nil {
 		return nil, err
