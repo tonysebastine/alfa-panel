@@ -53,7 +53,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
     { id: 'files', label: 'Files & Backups', icon: FolderTree },
     { id: 'settings', label: 'System Settings', icon: Settings },
 
-    { id: 'generator', label: 'Workload Generator', icon: Layers, section: '1Panel Architecture' },
+    { id: 'generator', label: 'Workload Generator', icon: Layers, section: 'alfa-panel Architecture' },
     { id: 'docker', label: 'Docker Socket & Logs', icon: Terminal },
     { id: 'code', label: 'Go Source Code', icon: Code2 },
     { id: 'blueprint', label: 'Architecture Blueprint', icon: ExternalLink },
@@ -75,7 +75,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
                 <Server className="w-4 h-4 text-slate-950" />
               </div>
               <div>
-                <h1 className="text-sm font-bold text-white tracking-tight">1Panel</h1>
+                <h1 className="text-sm font-bold text-white tracking-tight">alfa-panel</h1>
                 <p className="text-[10px] text-slate-400 font-mono">Linux Engine Daemon</p>
               </div>
             </div>
@@ -150,13 +150,17 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
         {/* Top Navigation Bar */}
         <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
           <div className="px-6 py-3 flex items-center justify-between gap-4">
-            {/* Server Node Name Badge */}
+            {/* Server Node Name Badge & Under Development Badge */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs text-slate-300">
                 <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                 <span className="font-bold text-white">node-01.us-east.prod</span>
                 <span className="text-slate-500">|</span>
                 <span className="text-slate-400">Ubuntu 24.04 LTS</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                <span>Under Development</span>
               </div>
             </div>
 

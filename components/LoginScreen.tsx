@@ -21,9 +21,19 @@ export default function LoginScreen({ onAuthenticated }: { onAuthenticated: () =
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 grid place-items-center p-4">
       <form onSubmit={submit} className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><LockKeyhole className="w-5 h-5"/></div>
-          <div><h1 className="font-bold text-lg">ALFA-PANEL</h1><p className="text-xs text-slate-400">Secure control plane</p></div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400"><LockKeyhole className="w-5 h-5"/></div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-lg">alfa-panel</h1>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Under Development
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Secure control plane</p>
+            </div>
+          </div>
         </div>
         <div className="space-y-3">
           <input aria-label="Username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Username" className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2.5 outline-none focus:border-emerald-500"/>

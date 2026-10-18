@@ -75,6 +75,11 @@ export const api = {
   updateUser: (id:string,payload:any) => request(`/api/v1/users/${encodeURIComponent(id)}`,{method:"PUT",body:JSON.stringify(payload)}),
   audit: () => request<{events:any[]}>('/api/v1/audit'),
   deleteSite: (domain:string, purge:boolean) => request(`/api/v1/sites/${encodeURIComponent(domain)}/delete`, {method:'POST',body:JSON.stringify({confirm_domain:domain,purge})}),
+  databases: () => request<{databases:any[];total:number}>('/api/v1/databases'),
+  createDatabase: (payload:any) => request('/api/v1/databases', {method:'POST',body:JSON.stringify(payload)}),
+  deleteDatabase: (id:string) => request(`/api/v1/databases/${encodeURIComponent(id)}`, {method:'DELETE'}),
+  testDatabaseConnection: (id:string) => request<{success:boolean;ping_ms?:number;message?:string}>(`/api/v1/databases/${encodeURIComponent(id)}/test`, {method:'POST'}),
+  databaseAction: (id:string, action:'start'|'stop'|'restart') => request<{success:boolean;status?:string;message?:string}>(`/api/v1/databases/${encodeURIComponent(id)}/${action}`, {method:'POST'}),
 };
 
 export async function streamLogs(domain:string,onLine:(line:string)=>void,signal?:AbortSignal){

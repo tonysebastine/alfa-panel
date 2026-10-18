@@ -24,7 +24,7 @@ export const SiteConfigurator: React.FC<SiteConfiguratorProps> = ({ config, onCh
             </span>
             <h2 className="text-xl font-bold text-white mt-1">Runtime Specification</h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Declarative configuration for containerized workloads fronted by 1Panel ingress.
+              Declarative configuration for containerized workloads fronted by alfa-panel ingress.
             </p>
           </div>
 
@@ -371,7 +371,7 @@ export const SiteConfigurator: React.FC<SiteConfiguratorProps> = ({ config, onCh
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4">
           <div className="flex items-center gap-2 pb-2 border-b border-slate-800/80">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-semibold text-slate-200">1Panel Rootless Security Flags</h3>
+            <h3 className="text-sm font-semibold text-slate-200">alfa-panel Rootless Security Flags</h3>
           </div>
 
           <div className="space-y-2.5">

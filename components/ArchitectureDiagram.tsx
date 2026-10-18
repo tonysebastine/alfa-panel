@@ -9,7 +9,7 @@ export const ArchitectureDiagram: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-2">
         <div>
           <span className="text-xs uppercase tracking-widest text-emerald-400 font-mono font-semibold">
-            1Panel Architecture Reference Model
+            alfa-panel Architecture Reference Model
           </span>
           <h3 className="text-lg font-bold text-white mt-0.5">
             Privileged Host Daemon &amp; Rootless Docker Workloads
@@ -45,7 +45,7 @@ export const ArchitectureDiagram: React.FC = () => {
         <div className="bg-slate-950 p-4 rounded-xl border border-cyan-800/60 space-y-3">
           <div className="flex items-center gap-2 text-cyan-400 font-bold border-b border-slate-800 pb-2">
             <Server className="w-4 h-4" />
-            <span>2. 1Panel OpenResty</span>
+            <span>2. alfa-panel OpenResty</span>
           </div>
           <p className="text-slate-400 text-[11px] leading-relaxed">
             OpenResty / Nginx container terminating SSL, enforcing HSTS, handling WebSocket upgrades, and routing <code>&lt;domain&gt;</code> to containers.

@@ -17,6 +17,7 @@ import { SecurityPenTester } from '@/components/SecurityPenTester';
 import { GoCodeExplorer } from '@/components/GoCodeExplorer';
 import { ArchitectureDiagram } from '@/components/ArchitectureDiagram';
 import SettingsView from '@/components/SettingsView';
+import { DatabasesView } from '@/components/DatabasesView';
 import LoginScreen from '@/components/LoginScreen';
 import { isAuthenticated, logout } from '@/lib/api-client';
 
@@ -82,17 +83,9 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* 3. Databases placeholder view */}
+      {/* 3. Databases & Persistent Storage Management */}
       {currentNav === 'databases' && (
-        <div className="p-8 rounded-2xl bg-slate-900 border border-slate-800 text-center font-mono space-y-3">
-          <div className="text-emerald-400 font-bold text-base">Databases &amp; Caching Services</div>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Containerized PostgreSQL, MySQL, and Redis services using per-site isolated networks with dedicated internal volumes.
-          </p>
-          <div className="p-3 bg-slate-950 rounded-xl inline-block text-xs text-slate-300 border border-slate-800">
-            Per-site bridge networks (zero exposed application host ports)
-          </div>
-        </div>
+        <DatabasesView />
       )}
 
       {/* 4. Security & Firewall */}

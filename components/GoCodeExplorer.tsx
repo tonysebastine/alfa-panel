@@ -327,7 +327,7 @@ export const GoCodeExplorer: React.FC = () => {
             Production Go Backend Architecture
           </span>
           <h3 className="text-base font-bold text-white mt-0.5">
-            1Panel Modular Source Code Explorer (Turns 1 – 6)
+            alfa-panel Modular Source Code Explorer (Turns 1 – 6)
           </h3>
           <p className="text-xs text-slate-400 mt-0.5 font-mono">
             Compilable Go modules located in <code>/go-src/pkg/</code>
