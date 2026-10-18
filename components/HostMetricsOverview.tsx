@@ -7,7 +7,20 @@ export const HostMetricsOverview=()=>{
  const [m,setM]=useState<any>(null),[rules,setRules]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[port,setPort]=useState(''),[protocol,setProtocol]=useState('tcp'),[busy,setBusy]=useState(false);
  useEffect(()=>{let alive=true;const load=async()=>{try{const [metrics,fw]=await Promise.all([api.metrics(),api.firewall()]);if(alive){setM(metrics);setRules(fw.rules||[]);setError(null)}}catch(e){if(alive)setError(e instanceof Error?e.message:'Unable to load host telemetry')}};load();const t=setInterval(load,5000);return()=>{alive=false;clearInterval(t)}},[]);
  const apply=async(action:'allow'|'deny')=>{const n=Number(port);if(!Number.isInteger(n)||n<1||n>65535){setError('Port must be between 1 and 65535');return}setBusy(true);try{const p={port:n,protocol,comment:'ALFA managed'};if(action==='allow')await api.firewallAllow(p);else await api.firewallDeny(p);const fw=await api.firewall();setRules(fw.rules||[]);setPort('');setError(null)}catch(e){setError(e instanceof Error?e.message:'Firewall update failed')}finally{setBusy(false)}};
- const cards=m?[[Cpu,'CPU',m.cpu_percent.toFixed(1)+'%'],[HardDrive,'RAM',m.memory_percent.toFixed(1)+'%'],[HardDrive,'Disk',m.disk_percent.toFixed(1)+'%'],[Activity,'Uptime',m.uptime_human]]:[[Cpu,'CPU','—'],[HardDrive,'RAM','—'],[HardDrive,'Disk','—'],[Activity,'Uptime','—']];
+ const fmt = (v: any) => (typeof v === 'number' && !isNaN(v) ? v.toFixed(1) + '%' : '—');
+ const cards = m
+  ? [
+      [Cpu, 'CPU', fmt(m.cpu_percent)],
+      [HardDrive, 'RAM', fmt(m.memory_percent)],
+      [HardDrive, 'Disk', fmt(m.disk_percent)],
+      [Activity, 'Uptime', m.uptime_human || '—'],
+    ]
+  : [
+      [Cpu, 'CPU', '—'],
+      [HardDrive, 'RAM', '—'],
+      [HardDrive, 'Disk', '—'],
+      [Activity, 'Uptime', '—'],
+    ];
  return <div className="space-y-5">
   {error&&<div className="rounded-xl border border-rose-900 bg-rose-950/30 p-3 text-sm text-rose-300">{error}</div>}
   <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5">
