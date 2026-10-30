@@ -8,31 +8,24 @@ import {
   Shield,
   FolderTree,
   Settings,
-  Code2,
-  Terminal,
   Activity,
-  Layers,
   ChevronLeft,
   ChevronRight,
-  User,
   Moon,
-  Sun,
   Radio,
-  ExternalLink,
   Lock,
+  HeartPulse,
+  CheckCircle,
 } from 'lucide-react';
 
 export type NavigationItem =
   | 'overview'
   | 'sites'
+  | 'autoheal'
   | 'databases'
   | 'security'
   | 'files'
-  | 'settings'
-  | 'generator'
-  | 'docker'
-  | 'code'
-  | 'blueprint';
+  | 'settings';
 
 interface DashboardShellProps {
   currentNav: NavigationItem;
@@ -45,18 +38,14 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const navItems: Array<{ id: NavigationItem; label: string; icon: React.ElementType; section?: string }> = [
-    { id: 'sites', label: 'Websites & Domains', icon: Globe, section: 'Hosting Management' },
+  const navItems: Array<{ id: NavigationItem; label: string; icon: React.ElementType }> = [
+    { id: 'sites', label: 'Websites & Domains', icon: Globe },
+    { id: 'autoheal', label: 'Auto-Heal & Watchdog', icon: HeartPulse },
     { id: 'overview', label: 'Dashboard Overview', icon: Activity },
     { id: 'databases', label: 'Databases', icon: Database },
     { id: 'security', label: 'Security & Firewall', icon: Shield },
     { id: 'files', label: 'Files & Backups', icon: FolderTree },
     { id: 'settings', label: 'System Settings', icon: Settings },
-
-    { id: 'generator', label: 'Workload Generator', icon: Layers, section: 'alfa-panel Architecture' },
-    { id: 'docker', label: 'Docker Socket & Logs', icon: Terminal },
-    { id: 'code', label: 'Go Source Code', icon: Code2 },
-    { id: 'blueprint', label: 'Architecture Blueprint', icon: ExternalLink },
   ];
 
   return (
@@ -95,30 +84,24 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
 
         {/* Navigation Items */}
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto scrollbar-thin font-mono text-xs">
-          {navItems.map((item, idx) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentNav === item.id;
 
             return (
-              <React.Fragment key={item.id}>
-                {item.section && !collapsed && (
-                  <div className="pt-3 pb-1 px-3 text-[10px] uppercase font-bold tracking-wider text-slate-500">
-                    {item.section}
-                  </div>
-                )}
-                <button
-                  onClick={() => onNavigate(item.id)}
-                  title={collapsed ? item.label : undefined}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
-                    isActive
-                      ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/10'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
-                  {!collapsed && <span className="truncate">{item.label}</span>}
-                </button>
-              </React.Fragment>
+              <button
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                title={collapsed ? item.label : undefined}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+                  isActive
+                    ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/10'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
+                {!collapsed && <span className="truncate">{item.label}</span>}
+              </button>
             );
           })}
         </nav>
@@ -150,7 +133,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
         {/* Top Navigation Bar */}
         <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
           <div className="px-6 py-3 flex items-center justify-between gap-4">
-            {/* Server Node Name Badge & Under Development Badge */}
+            {/* Server Node Name Badge & Production Status */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs text-slate-300">
                 <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
@@ -158,9 +141,9 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
                 <span className="text-slate-500">|</span>
                 <span className="text-slate-400">Ubuntu 24.04 LTS</span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                <span>Under Development</span>
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Production Mode</span>
               </div>
             </div>
 
@@ -183,6 +166,22 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ currentNav, onNa
                   <div className="bg-cyan-500 h-full w-[20%]" />
                 </div>
               </div>
+
+              {/* Auto-Heal Watchdog Pill */}
+              <button
+                type="button"
+                onClick={() => onNavigate('autoheal')}
+                className={`hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl border text-xs font-mono transition-colors ${
+                  currentNav === 'autoheal'
+                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-emerald-500/40'
+                }`}
+                title="Open Auto-Healing & Watchdog Control"
+              >
+                <HeartPulse className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span className="text-slate-400">Watchdog:</span>
+                <span className="text-emerald-400 font-bold">Auto-Heal Active</span>
+              </button>
 
               {/* Theme Toggle (Dark Mode Indicator) */}
               <button

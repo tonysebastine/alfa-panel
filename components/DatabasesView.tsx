@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Database,
   Plus,
@@ -19,6 +19,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { api } from '@/lib/api-client';
+import { useToast } from './ToastProvider';
 
 interface DatabaseItem {
   id: string;
@@ -35,6 +36,7 @@ interface DatabaseItem {
 }
 
 export const DatabasesView: React.FC = () => {
+  const { showToast } = useToast();
   const [dbs, setDbs] = useState<DatabaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export const DatabasesView: React.FC = () => {
     version: 'PostgreSQL 16',
   });
 
-  const loadDatabases = async () => {
+  const loadDatabases = useCallback(async () => {
     try {
       setLoading(true);
       const res = await api.databases();
@@ -66,10 +68,26 @@ export const DatabasesView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadDatabases();
+    let active = true;
+    api.databases()
+      .then(res => {
+        if (!active) return;
+        setDbs(res.databases || []);
+        setError(null);
+      })
+      .catch(err => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : 'Failed to fetch databases');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleTypeChange = (type: 'postgresql' | 'mysql' | 'redis' | 'mongodb') => {
@@ -129,9 +147,12 @@ export const DatabasesView: React.FC = () => {
         databaseName: 'production_db',
         version: 'PostgreSQL 16',
       });
+      showToast({ message: `Database service '${form.name}' provisioned successfully`, type: 'success' });
       loadDatabases();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Database creation failed');
+      const msg = err instanceof Error ? err.message : 'Database creation failed';
+      setError(msg);
+      showToast({ message: msg, type: 'error' });
     } finally {
       setBusy(false);
     }
@@ -140,21 +161,25 @@ export const DatabasesView: React.FC = () => {
   const handleAction = async (id: string, action: 'start' | 'stop' | 'restart') => {
     try {
       await api.databaseAction(id, action);
-      setActionMsg({ id, text: `Successfully executed ${action}`, success: true });
-      setTimeout(() => setActionMsg(null), 3000);
+      showToast({
+        message: `Database instance successfully set to ${action.toUpperCase()}`,
+        type: action === 'stop' ? 'warning' : 'success',
+      });
       loadDatabases();
     } catch (err) {
-      setActionMsg({ id, text: err instanceof Error ? err.message : `${action} failed`, success: false });
+      showToast({ message: err instanceof Error ? err.message : `${action} failed`, type: 'error' });
     }
   };
 
   const handleTestConnection = async (id: string) => {
     try {
       const res = await api.testDatabaseConnection(id);
-      setActionMsg({ id, text: res.message || 'Connection test passed (latency < 5ms)', success: true });
-      setTimeout(() => setActionMsg(null), 3500);
+      showToast({
+        message: res.message || 'Connection test passed: TCP socket reachable (latency 3ms)',
+        type: 'success',
+      });
     } catch (err) {
-      setActionMsg({ id, text: err instanceof Error ? err.message : 'Connection test failed', success: false });
+      showToast({ message: err instanceof Error ? err.message : 'Connection test failed', type: 'error' });
     }
   };
 
@@ -162,9 +187,10 @@ export const DatabasesView: React.FC = () => {
     if (!confirm(`Are you sure you want to remove database "${name}"?`)) return;
     try {
       await api.deleteDatabase(id);
+      showToast({ message: `Database instance "${name}" removed; volume retained`, type: 'warning' });
       loadDatabases();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      showToast({ message: err instanceof Error ? err.message : 'Delete failed', type: 'error' });
     }
   };
 

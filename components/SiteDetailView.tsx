@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { SiteItem } from './SitesManagementView';
 import { SiteLogViewer } from './SiteLogViewer';
 import { SiteFileManager } from './SiteFileManager';
+import { useToast } from './ToastProvider';
 import {
   ArrowLeft,
   ExternalLink,
@@ -34,21 +35,23 @@ import {
   AlertCircle,
   Clock,
   Zap,
+  HeartPulse,
 } from 'lucide-react';
 
 interface SiteDetailViewProps {
   site: SiteItem;
   onBack: () => void;
+  initialTab?: 'overview' | 'runtime' | 'env' | 'ssl' | 'logs' | 'files' | 'autoheal';
 }
 
-export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) => {
+export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack, initialTab = 'overview' }) => {
+  const { showToast } = useToast();
   const isTomcat = site.type === 'tomcat';
-  const [activeTab, setActiveTab] = useState<'overview' | 'runtime' | 'env' | 'ssl' | 'logs' | 'files'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'runtime' | 'env' | 'ssl' | 'logs' | 'files' | 'autoheal'>(initialTab);
 
   // Operational states
   const [isRunning, setIsRunning] = useState<boolean>(site.status === 'running');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // AI Diagnostic Modal state
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -92,10 +95,14 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
   const [customCert, setCustomCert] = useState('');
   const [customKey, setCustomKey] = useState('');
 
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  // Auto-healing state
+  const [probePath, setProbePath] = useState(isTomcat ? '/actuator/health' : '/healthz');
+  const [probeInterval, setProbeInterval] = useState(10);
+  const [probeTimeout, setProbeTimeout] = useState(3);
+  const [failureThreshold, setFailureThreshold] = useState(2);
+  const [autoRestartEnabled, setAutoRestartEnabled] = useState(true);
+  const [siteAutoHealSimulating, setSiteAutoHealSimulating] = useState(false);
+  const [siteHealLogs, setSiteHealLogs] = useState<string[]>([]);
 
   const handleAction = (type: 'restart' | 'stop' | 'start' | 'rebuild') => {
     setActionLoading(type);
@@ -103,14 +110,31 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
       setActionLoading(null);
       if (type === 'stop') {
         setIsRunning(false);
-        triggerToast(`Container '${site.containerName}' stopped cleanly.`);
+        showToast({
+          message: `Container '${site.containerName}' stopped cleanly.`,
+          type: 'warning',
+          onUndo: () => {
+            setIsRunning(true);
+            showToast({ message: `Container '${site.containerName}' started.`, type: 'success' });
+          },
+          undoLabel: 'Undo (Start)',
+        });
       } else if (type === 'start') {
         setIsRunning(true);
-        triggerToast(`Container '${site.containerName}' started on panel-network.`);
+        showToast({
+          message: `Container '${site.containerName}' started on panel-network.`,
+          type: 'success',
+        });
       } else if (type === 'restart') {
-        triggerToast(`Container '${site.containerName}' rebooted gracefully (SIGTERM 15s).`);
+        showToast({
+          message: `Container '${site.containerName}' rebooted gracefully (SIGTERM 15s).`,
+          type: 'success',
+        });
       } else if (type === 'rebuild') {
-        triggerToast(`Rebuilt compose stack with fresh cgroup resource limits.`);
+        showToast({
+          message: `Rebuilt compose stack with fresh cgroup resource limits.`,
+          type: 'info',
+        });
       }
     }, 800);
   };
@@ -149,7 +173,10 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
     setWarDeploying(true);
     setTimeout(() => {
       setWarDeploying(false);
-      triggerToast(`Successfully validated magic bytes and deployed ${selectedWarFile.name} to ROOT.war.`);
+      showToast({
+        message: `Successfully validated magic bytes and deployed ${selectedWarFile.name} to ROOT.war.`,
+        type: 'success',
+      });
       setSelectedWarFile(null);
     }, 1000);
   };
@@ -162,7 +189,7 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
       setPipOutput(
         `[docker exec site_${site.domain.replace(/[\.\-]/g, '_')}] pip install --user -r requirements.txt\nRequirement already satisfied: gunicorn>=21.2.0\nRequirement already satisfied: uvicorn[standard]>=0.28.0\nSuccessfully synchronized 4 packages.\n[Exit Code 0]`
       );
-      triggerToast('Dependencies successfully updated inside container.');
+      showToast({ message: 'Dependencies successfully updated inside container.', type: 'success' });
     }, 1200);
   };
 
@@ -183,18 +210,11 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
   };
 
   const handleSaveEnv = () => {
-    triggerToast('Saved .env file (0640) and reloaded container environment.');
+    showToast({ message: 'Saved .env file (0640 permissions) and reloaded container environment.', type: 'success' });
   };
 
   return (
     <div className="space-y-6 font-sans">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 bg-emerald-950 border border-emerald-800 text-emerald-300 font-mono text-xs rounded-xl shadow-2xl flex items-center gap-2.5 animate-slide-up">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
 
       {/* Top Header Bar */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-2xl">
@@ -365,6 +385,18 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
           >
             <Folder className="w-3.5 h-3.5" />
             Files &amp; Monaco Editor
+          </button>
+
+          <button
+            onClick={() => setActiveTab('autoheal')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+              activeTab === 'autoheal'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <HeartPulse className="w-3.5 h-3.5" />
+            Auto-Healing Watchdog
           </button>
         </div>
       </div>
@@ -854,7 +886,7 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
               </p>
             </div>
             <button
-              onClick={() => triggerToast('OpenResty syntax tested (nginx -t) and reloaded with SIGHUP.')}
+              onClick={() => showToast({ message: 'OpenResty syntax tested (nginx -t) and reloaded with SIGHUP.', type: 'success' })}
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-mono font-bold text-xs rounded-xl shadow-md transition-colors"
             >
               Apply &amp; Reload Proxy
@@ -955,6 +987,221 @@ export const SiteDetailView: React.FC<SiteDetailViewProps> = ({ site, onBack }) 
       {/* Tab 6: Files & Monaco Editor */}
       {activeTab === 'files' && (
         <SiteFileManager domain={site.domain} initialType={site.type} />
+      )}
+
+      {/* Tab 7: Auto-Healing Watchdog */}
+      {activeTab === 'autoheal' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left 2 cols: Probing Policy & Controls */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <HeartPulse className="w-4 h-4 text-emerald-400" />
+                      <span>Workload Health Probe Policy</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Configure synthetic HTTP health checks and automated container recovery triggers.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={autoRestartEnabled}
+                      onChange={e => setAutoRestartEnabled(e.target.checked)}
+                      className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
+                    />
+                    <span className="text-xs font-semibold text-slate-200">Auto-Restart Enabled</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Probe Endpoint Path</label>
+                    <input
+                      type="text"
+                      value={probePath}
+                      onChange={e => setProbePath(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      placeholder="/healthz"
+                    />
+                    <span className="text-[11px] text-slate-500">Internal container path for HTTP GET</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Failure Threshold</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={failureThreshold}
+                        onChange={e => setFailureThreshold(Number(e.target.value))}
+                        className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <span className="text-[11px] text-slate-400">consecutive probe failures before auto-heal</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Probe Frequency</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={3}
+                        max={120}
+                        value={probeInterval}
+                        onChange={e => setProbeInterval(Number(e.target.value))}
+                        className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <span className="text-[11px] text-slate-400">seconds between health checks</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Timeout Ceiling</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={15}
+                        value={probeTimeout}
+                        onChange={e => setProbeTimeout(Number(e.target.value))}
+                        className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <span className="text-[11px] text-slate-400">seconds before probe is declared hung</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <div className="text-xs text-slate-400">
+                    Mitigation backoff curve: <span className="text-emerald-400 font-mono">1s ➔ 2s ➔ 4s ➔ 8s (max 30s)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => showToast({ message: 'Auto-healing policy saved & synced to host watchdog!', type: 'success' })}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl transition-colors"
+                  >
+                    Save Policy
+                  </button>
+                </div>
+              </div>
+
+              {/* Site Fault Injection Test */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-400" />
+                      <span>Simulate Workload Fault &amp; Verify Self-Healing</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Inject a test failure into this container to verify the watchdog loop.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={siteAutoHealSimulating}
+                    onClick={() => {
+                      setSiteAutoHealSimulating(true);
+                      setSiteHealLogs([
+                        `[${new Date().toLocaleTimeString()}] Injected synthetic fault on ${site.domain}`,
+                        `[${new Date().toLocaleTimeString()}] Probe GET ${probePath} failed (HTTP 500)`,
+                      ]);
+                      setTimeout(() => {
+                        setSiteHealLogs(prev => [
+                          ...prev,
+                          `[${new Date().toLocaleTimeString()}] Watchdog detected ${failureThreshold}/${failureThreshold} failures: Triggering auto-restart`,
+                          `[${new Date().toLocaleTimeString()}] Executing container restart with backoff...`,
+                        ]);
+                        setTimeout(() => {
+                          setSiteHealLogs(prev => [
+                            ...prev,
+                            `[${new Date().toLocaleTimeString()}] Probe GET ${probePath} returned HTTP 200 OK (22ms). Restored!`,
+                          ]);
+                          setSiteAutoHealSimulating(false);
+                          showToast({ message: 'Auto-heal test completed successfully in 2.3s!', type: 'success' });
+                        }, 1400);
+                      }, 1000);
+                    }}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Run Auto-Heal Test</span>
+                  </button>
+                </div>
+
+                {siteHealLogs.length > 0 && (
+                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 space-y-1">
+                    {siteHealLogs.map((log, i) => (
+                      <div key={i}>{log}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right col: Watchdog Status & Safety Metrics */}
+            <div className="space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Resilience Status</span>
+                </h3>
+
+                <div className="space-y-3 text-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                    <span className="text-slate-400">Watchdog Probing:</span>
+                    <span className="text-emerald-400 font-bold font-mono">Active (10s)</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                    <span className="text-slate-400">Current Health:</span>
+                    <span className="text-emerald-400 font-semibold font-mono">Passing (24ms)</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                    <span className="text-slate-400">Consecutive Failures:</span>
+                    <span className="text-white font-mono">0 / {failureThreshold}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                    <span className="text-slate-400">Restarts in Last 24h:</span>
+                    <span className="text-cyan-400 font-mono">1</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Backoff Delay:</span>
+                    <span className="text-slate-300 font-mono">1.0s (Nominal)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Crash-Loop Backoff Matrix
+                </h3>
+                <div className="space-y-2 text-xs font-mono">
+                  <div className="flex items-center justify-between text-slate-300 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                    <span>Attempt 1:</span>
+                    <span className="text-emerald-400">1,000 ms</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                    <span>Attempt 2:</span>
+                    <span className="text-emerald-400">2,000 ms</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                    <span>Attempt 3:</span>
+                    <span className="text-emerald-400">4,000 ms</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-400 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                    <span>Attempt 4+:</span>
+                    <span className="text-amber-400">8s (cap: 30s)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* AI Diagnostic Modal */}

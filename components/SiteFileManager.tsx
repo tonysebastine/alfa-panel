@@ -1,31 +1,20 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Folder,
-  FolderOpen,
   File,
   FileCode,
   FileText,
   Save,
   Check,
-  RefreshCw,
-  Plus,
+  Search,
   Shield,
   Layers,
-  Upload,
+  Copy,
+  Undo2,
+  FileTerminal,
 } from 'lucide-react';
-
-// Dynamically import Monaco Editor to prevent SSR hydration mismatches
-const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
-  ssr: false,
-  loading: () => (
-    <div className="h-full flex items-center justify-center font-mono text-xs text-slate-500 bg-slate-950">
-      Loading Monaco Editor...
-    </div>
-  ),
-});
 
 interface SiteFileManagerProps {
   domain: string;
@@ -128,6 +117,12 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
   );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
 
   const handleSelectFile = (path: string) => {
     setActiveFilePath(path);
@@ -152,7 +147,7 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
       setIsSaving(false);
       setToastMessage(`Saved /opt/panel/apps/sites/${domain}/${activeFilePath} (0640 atomic write)`);
       setTimeout(() => setToastMessage(null), 3000);
-    }, 300);
+    }, 250);
   }, [activeFilePath, domain, editorContent]);
 
   // Global hotkey Ctrl+S / Cmd+S listener
@@ -162,10 +157,46 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
         e.preventDefault();
         handleSaveFile();
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(prev => !prev);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleSaveFile]);
+
+  // Tab key indenter inside textarea
+  const handleKeyDownInTextarea = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+
+      // Insert 2 spaces
+      const newContent = editorContent.substring(0, start) + '  ' + editorContent.substring(end);
+      setEditorContent(newContent);
+
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+      }, 0);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(editorContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+  };
 
   const activeFile = files[activeFilePath] || {
     path: activeFilePath,
@@ -176,7 +207,8 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
     content: '',
   };
 
-  const lineCount = editorContent.split('\n').length;
+  const lines = editorContent.split('\n');
+  const lineCount = lines.length;
   const charCount = editorContent.length;
 
   return (
@@ -202,17 +234,31 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowSearch(prev => !prev)}
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            title="Search in file (Ctrl+F)"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg transition-colors"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+          <button
             onClick={handleSaveFile}
             disabled={isSaving}
             className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" />
-            <span>Save (Ctrl+S)</span>
+            <span>{isSaving ? 'Saving...' : 'Save (Ctrl+S)'}</span>
           </button>
         </div>
       </div>
 
-      {/* Split Pane: Tree on Left, Monaco on Right */}
+      {/* Split Pane: Tree on Left, Editor on Right */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Directory Tree Pane */}
         <div className="w-64 bg-slate-950/70 border-r border-slate-800 p-3 flex flex-col justify-between overflow-y-auto">
@@ -267,13 +313,13 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
           </div>
         </div>
 
-        {/* Right Monaco Editor Pane */}
+        {/* Right Editor Pane */}
         <div className="flex-1 flex flex-col bg-slate-950">
           {/* File Tab Bar */}
           <div className="px-4 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs">
               <span className="font-bold text-white">{activeFile.name}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
                 {activeFile.language}
               </span>
               <span className="text-[10px] text-slate-500">
@@ -285,24 +331,55 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
             </div>
           </div>
 
-          {/* Monaco Editor Component */}
-          <div className="flex-1 relative">
-            <MonacoEditor
-              height="100%"
-              language={activeFile.language}
+          {/* Quick Search bar if opened */}
+          {showSearch && (
+            <div className="p-2 bg-slate-900 border-b border-slate-800 flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Find in file..."
+                className="bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 flex-1"
+                autoFocus
+              />
+              <span className="text-[10px] text-slate-500">
+                {searchQuery ? `${(editorContent.match(new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length} matches` : ''}
+              </span>
+              <button
+                onClick={() => setShowSearch(false)}
+                className="text-slate-500 hover:text-white text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Code Editor Container */}
+          <div className="flex-1 flex overflow-hidden relative font-mono text-xs">
+            {/* Line numbers gutter */}
+            <div
+              ref={lineNumbersRef}
+              className="w-12 py-3 bg-slate-950 border-r border-slate-800/80 text-right pr-2.5 text-slate-600 select-none overflow-hidden shrink-0"
+              style={{ lineHeight: '20px' }}
+            >
+              {lines.map((_, i) => (
+                <div key={i}>{i + 1}</div>
+              ))}
+            </div>
+
+            {/* Editable Text Area */}
+            <textarea
+              ref={textareaRef}
               value={editorContent}
-              onChange={val => setEditorContent(val || '')}
-              theme="vs-dark"
-              options={{
-                fontSize: 12,
-                fontFamily: 'var(--font-geist-mono), monospace',
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                lineNumbers: 'on',
-                automaticLayout: true,
+              onChange={e => setEditorContent(e.target.value)}
+              onKeyDown={handleKeyDownInTextarea}
+              onScroll={handleScroll}
+              spellCheck={false}
+              className="flex-1 py-3 px-3 bg-transparent text-slate-200 resize-none focus:outline-none font-mono text-xs leading-[20px] whitespace-pre overflow-auto selection:bg-emerald-500/30 selection:text-white"
+              style={{
                 tabSize: 2,
-                cursorBlinking: 'smooth',
-                renderWhitespace: 'none',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
               }}
             />
           </div>
@@ -314,8 +391,9 @@ export const SiteFileManager: React.FC<SiteFileManagerProps> = ({ domain, initia
               <span>Characters: {charCount}</span>
               <span>Encoding: UTF-8</span>
             </div>
-            <div className="text-emerald-400">
-              Safe Sandbox • Atomic Flush Mode
+            <div className="text-emerald-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Safe Sandbox • Atomic 0640 Flush Mode
             </div>
           </div>
         </div>

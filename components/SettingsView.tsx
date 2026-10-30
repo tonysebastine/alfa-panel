@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, Users, ScrollText, Plus } from 'lucide-react';
 import { api } from '@/lib/api-client';
+import { useToast } from './ToastProvider';
 
 type UserRecord = {
   id: string;
@@ -23,6 +24,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export default function SettingsView() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [busy, setBusy] = useState(false);
@@ -76,10 +78,13 @@ export default function SettingsView() {
     setError(null);
     try {
       await api.createUser(form);
+      showToast({ message: `User account '${form.username}' created with role '${form.role}'`, type: 'success' });
       setForm({ username: '', password: '', totp_secret: '', role: 'developer' });
       await refresh();
     } catch (cause) {
-      setError(errorMessage(cause, 'User creation failed'));
+      const msg = errorMessage(cause, 'User creation failed');
+      setError(msg);
+      showToast({ message: msg, type: 'error' });
     } finally {
       setBusy(false);
     }

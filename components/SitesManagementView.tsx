@@ -9,7 +9,6 @@ import {
   Square,
   RotateCw,
   ExternalLink,
-  MoreVertical,
   Lock,
   AlertTriangle,
   Server,
@@ -20,9 +19,11 @@ import {
   Trash2,
   CheckCircle2,
   RefreshCw,
+  HeartPulse,
 } from 'lucide-react';
 import { CreateSiteModal } from './CreateSiteModal';
 import { api } from '@/lib/api-client';
+import { useToast } from './ToastProvider';
 
 export interface SiteItem {
   id: string;
@@ -41,7 +42,7 @@ export interface SiteItem {
 }
 
 interface SitesManagementViewProps {
-  onSelectSite?: (site: SiteItem) => void;
+  onSelectSite?: (site: SiteItem, tab?: 'overview' | 'runtime' | 'env' | 'ssl' | 'logs' | 'files' | 'autoheal') => void;
   onOpenTerminal?: (site: SiteItem) => void;
   onOpenFiles?: (site: SiteItem) => void;
 }
@@ -51,19 +52,13 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
   onOpenTerminal,
   onOpenFiles,
 }) => {
+  const { showToast } = useToast();
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [runtimeFilter, setRuntimeFilter] = useState<'all' | 'tomcat' | 'python'>('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-
-  const showNotice = (msg: string) => {
-    setActionNotice(msg);
-    setTimeout(() => setActionNotice(null), 3500);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -91,32 +86,63 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
   }, []);
 
   const handleToggleState = async (id: string) => {
-    const target = sites.find(s => s.id === id); if (!target) return;
+    const target = sites.find(s => s.id === id);
+    if (!target) return;
     const action = target.status === 'running' ? 'stop' : 'start';
-    try { await api.siteAction(target.domain, action); showNotice(`Site '${target.domain}' set to ${action.toUpperCase()}`); setSites(prev=>prev.map(s=>s.id===id?{...s,status:action==='start'?'running':'stopped'}:s)); }
-    catch (err) { showNotice(err instanceof Error ? err.message : 'Site action failed'); }
+    const reverseAction = action === 'start' ? 'stop' : 'start';
+    try {
+      await api.siteAction(target.domain, action);
+      setSites(prev => prev.map(s => (s.id === id ? { ...s, status: action === 'start' ? 'running' : 'stopped' } : s)));
+      showToast({
+        message: `Workload '${target.domain}' set to ${action.toUpperCase()}`,
+        type: action === 'start' ? 'success' : 'warning',
+        onUndo: async () => {
+          try {
+            await api.siteAction(target.domain, reverseAction);
+            setSites(prev => prev.map(s => (s.id === id ? { ...s, status: reverseAction === 'start' ? 'running' : 'stopped' } : s)));
+            showToast({ message: `Reverted: Workload '${target.domain}' ${reverseAction.toUpperCase()}`, type: 'info' });
+          } catch (undoErr) {
+            showToast({ message: `Undo failed: ${undoErr instanceof Error ? undoErr.message : 'Unknown error'}`, type: 'error' });
+          }
+        },
+        undoLabel: `Undo (${reverseAction.toUpperCase()})`,
+      });
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message : 'Site action failed', type: 'error' });
+    }
   };
 
   const handleRestartSite = async (id: string) => {
-    const target = sites.find(s => s.id === id); if (!target) return;
-    try { await api.siteAction(target.domain,'restart'); showNotice(`Graceful restart triggered for '${target.domain}'`); }
-    catch (err) { showNotice(err instanceof Error ? err.message : 'Restart failed'); }
+    const target = sites.find(s => s.id === id);
+    if (!target) return;
+    try {
+      await api.siteAction(target.domain, 'restart');
+      showToast({ message: `Graceful reboot initiated for '${target.domain}' (SIGTERM 15s timeout)`, type: 'success' });
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message : 'Restart failed', type: 'error' });
+    }
   };
 
   const handleDeleteSite = async (id: string) => {
-    const target = sites.find(s => s.id === id); if (!target) return;
-    const confirmDomain = window.prompt(`Type ${target.domain} to confirm deletion. Leave purge unchecked by default.`);
-    if (confirmDomain !== target.domain) { showNotice('Deletion cancelled: exact domain confirmation required.'); return; }
+    const target = sites.find(s => s.id === id);
+    if (!target) return;
+    const confirmDomain = window.prompt(`Type "${target.domain}" to confirm container deletion. (Host volume will be safely retained).`);
+    if (confirmDomain !== target.domain) {
+      showToast({ message: 'Deletion cancelled: domain mismatch', type: 'info' });
+      return;
+    }
     try {
       await api.deleteSite(target.domain, false);
       setSites(prev => prev.filter(s => s.id !== id));
-      showNotice(`Site '${target.domain}' deleted; data directory retained for recovery.`);
-    } catch (err) { showNotice(err instanceof Error ? err.message : 'Deletion failed'); }
+      showToast({ message: `Workload '${target.domain}' removed; container volume preserved for recovery`, type: 'warning' });
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message : 'Deletion failed', type: 'error' });
+    }
   };
 
   const handleCreated = (newSite: SiteItem) => {
     setSites(prev => [newSite, ...prev]);
-    showNotice(`Site '${newSite.domain}' provisioned with rootless security on an isolated site network`);
+    showToast({ message: `Workload '${newSite.domain}' provisioned with rootless cgroups on panel-network`, type: 'success' });
   };
 
   // Filtered sites
@@ -136,47 +162,36 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Metrics Overview */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 shadow-md">
-          <div className="text-[11px] font-mono text-slate-400">Total Sites</div>
-          <div className="text-2xl font-bold font-mono text-white mt-1">{sites.length}</div>
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-            {tomcatCount} Tomcat • {pythonCount} Python
+      {/* Top Banner / Metrics Overview - Tabular Monospace & Responsive Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 shadow-sm transition-all hover:border-slate-700/80">
+          <div className="text-xs font-mono text-slate-400">Total Workloads</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-white mt-1.5">{sites.length}</div>
+          <div className="text-xs text-slate-500 font-mono tabular-nums mt-1 flex items-center gap-1.5">
+            <span>{tomcatCount} Tomcat</span>
+            <span aria-hidden="true">·</span>
+            <span>{pythonCount} Python</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 shadow-md">
-          <div className="text-[11px] font-mono text-slate-400">Running Workloads</div>
-          <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">{runningCount}</div>
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">Active containers on bridge</div>
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 shadow-sm transition-all hover:border-emerald-500/30">
+          <div className="text-xs font-mono text-slate-400">Running Workloads</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400 mt-1.5">{runningCount}</div>
+          <div className="text-xs text-slate-500 font-mono mt-1">Active containers on bridge</div>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 shadow-md">
-          <div className="text-[11px] font-mono text-slate-400">Stopped Workloads</div>
-          <div className="text-2xl font-bold font-mono text-slate-400 mt-1">{stoppedCount}</div>
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">Resource cgroups released</div>
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 shadow-sm transition-all hover:border-slate-700/80">
+          <div className="text-xs font-mono text-slate-400">Stopped Workloads</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-slate-400 mt-1.5">{stoppedCount}</div>
+          <div className="text-xs text-slate-500 font-mono mt-1">Resource cgroups released</div>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 shadow-md">
-          <div className="text-[11px] font-mono text-slate-400">Network &amp; Ingress</div>
-          <div className="text-2xl font-bold font-mono text-cyan-400 mt-1">100% SSL</div>
-          <div className="text-[10px] text-slate-500 font-mono mt-0.5">OpenResty Ingress Proxy</div>
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 shadow-sm transition-all hover:border-cyan-500/30">
+          <div className="text-xs font-mono text-slate-400">Ingress &amp; Certificates</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-cyan-400 mt-1.5">100% SSL</div>
+          <div className="text-xs text-slate-500 font-mono mt-1">OpenResty Ingress Gateway</div>
         </div>
       </div>
-
-      {/* Action Notification */}
-      {actionNotice && (
-        <div className="p-3 bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs font-mono rounded-xl flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>{actionNotice}</span>
-          </div>
-          <button onClick={() => setActionNotice(null)} className="text-slate-400 hover:text-white">
-            &times;
-          </button>
-        </div>
-      )}
 
       {/* Table Toolbar */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -293,13 +308,13 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
                               <ExternalLink className="w-3.5 h-3.5" />
                             </a>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono text-slate-400">
+                          <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
                             <span>/opt/panel/apps/sites/{site.domain}/</span>
-                            <span>•</span>
+                            <span aria-hidden="true" className="text-slate-600">·</span>
                             <span
                               className={
                                 site.ssl === 'active'
-                                  ? 'text-emerald-400'
+                                  ? 'text-emerald-400 font-medium'
                                   : 'text-amber-400 font-semibold'
                               }
                             >
@@ -310,163 +325,163 @@ export const SitesManagementView: React.FC<SitesManagementViewProps> = ({
                       </div>
                     </td>
 
-                    {/* Runtime Engine Badge */}
-                    <td className="py-4 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-semibold ${
-                          site.type === 'tomcat'
-                            ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                            : 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'
-                        }`}
-                      >
-                        {site.type === 'tomcat' ? (
-                          <Server className="w-3.5 h-3.5 text-amber-400" />
-                        ) : (
-                          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-                        )}
-                        {site.runtimeName}
-                      </span>
-                    </td>
-
-                    {/* Status Badge */}
-                    <td className="py-4 px-4">
+                    {/* Runtime Engine - Unboxed zero-pill text */}
+                    <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
                       <div className="flex items-center gap-2">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                          }`}
-                        />
-                        <span
-                          className={`text-xs font-mono font-bold capitalize ${
-                            isRunning ? 'text-emerald-400' : 'text-slate-400'
-                          }`}
-                        >
-                          {site.status}
-                        </span>
+                        {site.type === 'tomcat' ? (
+                          <Server className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        ) : (
+                          <Terminal className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        )}
+                        <span className="text-slate-300 font-medium">{site.runtimeName}</span>
                       </div>
                     </td>
 
-                    {/* CPU & Memory metrics */}
-                    <td className="py-4 px-4 font-mono">
+                    {/* Status Badge & Auto-Heal Watchdog status */}
+                    <td className="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
                       <div className="space-y-1">
-                        <div className="flex justify-between text-[11px] text-slate-300">
-                          <span>RAM: {site.memoryUsedMB} MB / {site.memoryLimitMB} MB</span>
-                          <span className="text-slate-400">{ramPercent.toFixed(0)}%</span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+                            }`}
+                          />
+                          <span
+                            className={`font-semibold capitalize ${
+                              isRunning ? 'text-emerald-400' : 'text-slate-400'
+                            }`}
+                          >
+                            {site.status}
+                          </span>
                         </div>
-                        <div className="w-36 bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                        <div className="text-[10px] text-emerald-400/90 flex items-center gap-1">
+                          <HeartPulse className="w-3 h-3 text-emerald-400" />
+                          <span>Watchdog Active</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* CPU & Memory metrics - Tabular Monospace & Micro Bar */}
+                    <td className="py-3.5 px-4 font-mono whitespace-nowrap">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2 text-xs text-slate-300 tabular-nums">
+                          <span>{site.memoryUsedMB} <span className="text-slate-600">/</span> {site.memoryLimitMB} MB</span>
+                          <span className={`font-semibold ${ramPercent > 80 ? 'text-rose-400' : ramPercent > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            {ramPercent.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="w-32 bg-slate-950 h-1.5 rounded-full overflow-hidden border border-slate-800">
                           <div
-                            className={`h-full ${
+                            className={`h-full transition-all duration-300 ${
                               ramPercent > 80
                                 ? 'bg-rose-500'
                                 : ramPercent > 50
                                 ? 'bg-amber-500'
-                                : 'bg-cyan-500'
+                                : 'bg-emerald-500'
                             }`}
                             style={{ width: `${Math.min(100, ramPercent)}%` }}
                           />
                         </div>
-                        <div className="text-[10px] text-slate-500">
-                          CPU: {site.cpuPercent}% of {site.cpuLimit}
+                        <div className="text-[11px] text-slate-500 tabular-nums">
+                          CPU: <span className="text-slate-400 font-medium">{site.cpuPercent}%</span> · {site.cpuLimit}
                         </div>
                       </div>
                     </td>
 
-                    {/* Internal Ingress */}
-                    <td className="py-4 px-4 font-mono text-xs">
-                      <div className="text-slate-300">
-                        Port: <strong className="text-emerald-400">{site.port}</strong>
+                    {/* Internal Ingress & Port */}
+                    <td className="py-3.5 px-4 font-mono text-xs whitespace-nowrap">
+                      <div className="text-slate-300 tabular-nums">
+                        Port: <strong className="text-emerald-400 font-semibold">{site.port}</strong>
                       </div>
                       <div className="text-[10px] text-slate-500">
-                        Dedicated site network
+                        panel-network bridge
                       </div>
                     </td>
 
-                    {/* Actions column */}
-                    <td className="py-4 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5 relative">
+                    {/* Actions column - Ergonomic 32px Button Strip */}
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center justify-end gap-1 font-mono">
                         {/* Start/Stop toggle button */}
                         <button
+                          type="button"
                           onClick={() => handleToggleState(site.id)}
-                          className={`p-1.5 rounded-lg transition-colors ${
+                          className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all ${
                             isRunning
-                              ? 'text-rose-400 hover:bg-rose-950/60'
-                              : 'text-emerald-400 hover:bg-emerald-950/60'
+                              ? 'text-rose-400 border-rose-900/40 bg-rose-950/20 hover:bg-rose-950/60'
+                              : 'text-emerald-400 border-emerald-900/40 bg-emerald-950/20 hover:bg-emerald-950/60'
                           }`}
                           title={isRunning ? 'Stop Container' : 'Start Container'}
+                          aria-label={isRunning ? 'Stop Container' : 'Start Container'}
                         >
-                          {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                          {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                         </button>
 
                         {/* Restart button */}
                         <button
+                          type="button"
                           onClick={() => handleRestartSite(site.id)}
                           disabled={!isRunning}
-                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-40"
-                          title="Restart Container"
+                          className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg border border-slate-800 transition-all disabled:opacity-30 disabled:pointer-events-none"
+                          title="Graceful Restart (SIGTERM)"
+                          aria-label="Graceful Restart"
                         >
-                          <RotateCw className="w-4 h-4" />
+                          <RotateCw className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Dropdown Menu Toggle */}
+                        {/* Quick Logs & Terminal */}
                         <button
-                          onClick={() =>
-                            setActiveDropdown(activeDropdown === site.id ? null : site.id)
-                          }
-                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                          type="button"
+                          onClick={() => onSelectSite?.(site, 'logs')}
+                          className="w-7 h-7 flex items-center justify-center text-purple-400 hover:text-purple-300 hover:bg-purple-950/40 rounded-lg border border-slate-800 transition-all"
+                          title="Container Logs & Terminal"
+                          aria-label="Container Logs & Terminal"
                         >
-                          <MoreVertical className="w-4 h-4" />
+                          <Terminal className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Popover Dropdown */}
-                        {activeDropdown === site.id && (
-                          <div className="absolute right-0 top-10 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1 z-20 text-left font-mono text-xs space-y-0.5">
-                            <button
-                              onClick={() => {
-                                setActiveDropdown(null);
-                                onSelectSite?.(site);
-                              }}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
-                            >
-                              <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Manage Workload</span>
-                            </button>
+                        {/* Auto-Heal & Watchdog Diagnostics */}
+                        <button
+                          type="button"
+                          onClick={() => onSelectSite?.(site, 'autoheal')}
+                          className="w-7 h-7 flex items-center justify-center text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 rounded-lg border border-slate-800 transition-all"
+                          title="Auto-Heal Diagnostics & Probe Setup"
+                          aria-label="Auto-Heal Diagnostics & Probe Setup"
+                        >
+                          <HeartPulse className="w-3.5 h-3.5" />
+                        </button>
 
-                            <button
-                              onClick={() => {
-                                setActiveDropdown(null);
-                                onOpenFiles?.(site);
-                              }}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Files &amp; .WAR Deploy</span>
-                            </button>
+                        {/* Files & Deployment */}
+                        <button
+                          type="button"
+                          onClick={() => onOpenFiles?.(site)}
+                          className="w-7 h-7 flex items-center justify-center text-cyan-400 hover:text-cyan-300 hover:bg-cyan-950/40 rounded-lg border border-slate-800 transition-all"
+                          title="Site Files & Deployment"
+                          aria-label="Site Files & Deployment"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
 
-                            <button
-                              onClick={() => {
-                                setActiveDropdown(null);
-                                onSelectSite?.(site);
-                              }}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
-                            >
-                              <Terminal className="w-3.5 h-3.5 text-purple-400" />
-                              <span>Logs & Monitoring</span>
-                            </button>
+                        {/* Manage Workload Details */}
+                        <button
+                          type="button"
+                          onClick={() => onSelectSite?.(site, 'overview')}
+                          className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg border border-slate-800 transition-all"
+                          title="Manage Workload Details"
+                          aria-label="Manage Workload Details"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
 
-                            <div className="h-px bg-slate-800 my-1" />
-
-                            <button
-                              onClick={() => {
-                                setActiveDropdown(null);
-                                handleDeleteSite(site.id);
-                              }}
-                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-rose-400 hover:bg-rose-950/50 transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete Site</span>
-                            </button>
-                          </div>
-                        )}
+                        {/* Delete Site */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSite(site.id)}
+                          className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg border border-slate-800 transition-all"
+                          title="Delete Site"
+                          aria-label="Delete Site"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>

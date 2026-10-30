@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig([{
+export default defineConfig([
+  {
+    ignores: [
+      ".next/**",
+      ".next-dev/**",
+      "node_modules/**",
+      "coverage/**",
+      "**/.next/**",
+      "**/.next-dev/**",
+    ],
+  },
+  {
     extends: [...next],
-}]);
+  },
+]);
